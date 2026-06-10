@@ -135,6 +135,11 @@ export const queryKeys = {
   },
   budgets: {
     overview: (companyId: string) => ["budgets", "overview", companyId] as const,
+    liveMeter: (companyId: string) => ["budgets", "live-meter", companyId] as const,
+  },
+  hive: {
+    board: (companyId: string) => ["issues", companyId, "hive-board"] as const,
+    plan: (issueId: string) => ["plans", "detail", issueId] as const,
   },
   approvals: {
     list: (companyId: string, status?: string) =>

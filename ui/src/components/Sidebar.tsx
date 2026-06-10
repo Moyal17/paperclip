@@ -14,6 +14,8 @@ import {
   Package,
   Settings,
   FolderOpen,
+  Columns3,
+  Radio,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { NavLink } from "@/lib/router";
@@ -53,6 +55,9 @@ export function Sidebar() {
   // (top-level Projects link). Issue/Task wording is split to PR #7651.
   // Gating is navigation-only; all routes stay registered in both modes.
   const streamlined = experimentalSettings?.enableStreamlinedLeftNavigation === true;
+  // Solo-mode (MyHive M11): board-first, hide multi-team/governance nav. UI-only;
+  // every route stays registered so nothing breaks if the flag flips off.
+  const soloMode = experimentalSettings?.soloMode === true;
 
   const pluginContext = {
     companyId: selectedCompanyId,
@@ -89,7 +94,11 @@ export function Sidebar() {
             <SquarePen className="h-4 w-4 shrink-0" />
             <span className="truncate">New Task</span>
           </button>
-          <SidebarNavItem to="/dashboard" label="Dashboard" icon={LayoutDashboard} liveCount={liveRunCount} />
+          <SidebarNavItem to="/board" label="Board" icon={Columns3} liveCount={liveRunCount} />
+          <SidebarNavItem to="/monitor" label="Monitor" icon={Radio} />
+          {soloMode ? null : (
+            <SidebarNavItem to="/dashboard" label="Dashboard" icon={LayoutDashboard} liveCount={liveRunCount} />
+          )}
           <SidebarNavItem
             to="/inbox"
             label="Inbox"
@@ -103,7 +112,7 @@ export function Sidebar() {
         <SidebarSection label="Work">
           <SidebarNavItem to="/issues" label="Tasks" icon={CircleDot} />
           <SidebarNavItem to="/routines" label="Routines" icon={Repeat} />
-          <SidebarNavItem to="/goals" label="Goals" icon={Target} />
+          {soloMode ? null : <SidebarNavItem to="/goals" label="Goals" icon={Target} />}
           <SidebarNavItem to="/artifacts" label="Artifacts" icon={Package} />
           {showWorkspacesLink ? (
             <SidebarNavItem to="/workspaces" label="Workspaces" icon={GitBranch} />
@@ -132,7 +141,7 @@ export function Sidebar() {
         <SidebarAgents streamlined={streamlined} />
 
         <SidebarSection label="Company">
-          <SidebarNavItem to="/org" label="Org" icon={Network} />
+          {soloMode ? null : <SidebarNavItem to="/org" label="Org" icon={Network} />}
           <SidebarNavItem to="/skills" label="Skills" icon={Boxes} />
           <SidebarNavItem to="/costs" label="Costs" icon={DollarSign} />
           <SidebarNavItem to="/activity" label="Activity" icon={History} />
