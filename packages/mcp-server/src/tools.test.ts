@@ -69,6 +69,34 @@ describe("paperclip MCP tools", () => {
     expect(response.content[0]?.text).toContain("issue-1");
   });
 
+  it("posts an empty body to the git push endpoint (no target fields)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(mockJsonResponse({ branch: "issue/HIVE-1" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const tool = getTool("paperclipPushBranch");
+    await tool.execute({ issueId: "HIVE-1" });
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(String(url)).toBe("http://localhost:3100/api/issues/HIVE-1/git/push");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({});
+  });
+
+  it("opens a pull request with only title/body/draft", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      mockJsonResponse({ prUrl: "https://github.com/Moyal17/paperclip/pull/1", branch: "issue/HIVE-1", created: true }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const tool = getTool("paperclipOpenPullRequest");
+    await tool.execute({ issueId: "HIVE-1", title: "Add widget", body: "Implements widget." });
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(String(url)).toBe("http://localhost:3100/api/issues/HIVE-1/git/pr");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ title: "Add widget", body: "Implements widget." });
+  });
+
   it("uses default agent id for checkout requests", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       mockJsonResponse({ id: "PAP-1135", status: "in_progress" }),

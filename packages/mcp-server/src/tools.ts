@@ -515,6 +515,27 @@ export function createToolDefinitions(client: PaperclipApiClient): ToolDefinitio
         client.requestJson("PATCH", `/issues/${encodeURIComponent(issueId)}`, { body }),
     ),
     makeTool(
+      "paperclipPushBranch",
+      "Push the current issue's worktree branch to the configured fork. The server holds the credentials — you never see or pass a token. Commit locally first.",
+      z.object({ issueId: issueIdSchema }),
+      async ({ issueId }) =>
+        client.requestJson("POST", `/issues/${encodeURIComponent(issueId)}/git/push`, { body: {} }),
+    ),
+    makeTool(
+      "paperclipOpenPullRequest",
+      "Push the issue branch and open (or return the existing) pull request on the fork. Provide a PR title and optional body; the server derives the repo, branch, and base.",
+      z.object({
+        issueId: issueIdSchema,
+        title: z.string().trim().min(1).max(256),
+        body: z.string().max(65536).optional(),
+        draft: z.boolean().optional(),
+      }),
+      async ({ issueId, title, body, draft }) =>
+        client.requestJson("POST", `/issues/${encodeURIComponent(issueId)}/git/pr`, {
+          body: { title, body, draft },
+        }),
+    ),
+    makeTool(
       "paperclipCheckoutIssue",
       "Checkout an issue for an agent",
       checkoutIssueToolSchema,
