@@ -17,6 +17,9 @@ export const planDetails = pgTable(
     companyId: uuid("company_id").notNull().references(() => companies.id),
     // Plan lifecycle, independent of the root issue status.
     state: text("state").notNull().default("draft"),
+    // Advisory gate protocol: 'none' = no gates; 'dev_team' = Architect /
+    // Code Reviewer / Wiring Expert gate approvals are materialized at activate.
+    gateProfile: text("gate_profile").notNull().default("none"),
     // Ordered tiers: [{ id, kind: 'phase'|'wave', name, requestedChildren: [...], childIssueIds: [] }]
     tiers: jsonb("tiers").$type<Record<string, unknown>[]>().notNull().default(sql`'[]'::jsonb`),
     budgetCapCents: integer("budget_cap_cents"),
