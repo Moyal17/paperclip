@@ -8,6 +8,9 @@ import type {
   IssueBlockedInboxSeverity,
 } from "@paperclipai/shared";
 import {
+  ATTENTION_VERB_ICON,
+  ATTENTION_VERB_LABEL,
+  attentionVerb,
   BLOCKED_REASON_VARIANT_ORDER,
   blockedBadgeTone,
   blockedReasonLabel,
@@ -20,7 +23,9 @@ import {
   compareBlockedRows,
   formatStoppedAge,
   groupBlockedInboxRows,
+  primaryAttentionAction,
   sortBlockedInboxRows,
+  type AttentionVerb,
   type BlockedInboxIssueRow,
 } from "./blockedInbox";
 
@@ -271,5 +276,107 @@ describe("blockedInbox", () => {
     expect(formatStoppedAge("2026-05-09T20:00:00.000Z", now)).toBe("stopped 4h");
     expect(formatStoppedAge("2026-05-07T00:00:00.000Z", now)).toBe("stopped 3d");
     expect(formatStoppedAge("2026-04-15T00:00:00.000Z", now)).toBe("stopped 3w");
+  });
+});
+
+function makeIssueRef(identifier: string): IssueBlockedInboxAttention["leafIssue"] {
+  return {
+    id: `id-${identifier}`,
+    identifier,
+    title: `Title ${identifier}`,
+    status: "in_review",
+    priority: "medium",
+    assigneeAgentId: null,
+    assigneeUserId: null,
+  };
+}
+
+describe("attentionVerb", () => {
+  const cases: [IssueBlockedInboxReason, AttentionVerb][] = [
+    ["pending_user_decision", "answer"],
+    ["pending_board_decision", "approve"],
+    ["missing_successful_run_disposition", "approve"],
+    ["in_review_without_action_path", "review"],
+    ["invalid_review_participant", "review"],
+    ["blocked_by_unassigned_issue", "unblock"],
+    ["blocked_by_assigned_backlog_issue", "unblock"],
+    ["blocked_by_cancelled_issue", "unblock"],
+    ["blocked_chain_stalled", "recover"],
+    ["open_recovery_issue", "recover"],
+    ["external_owner_action", "waiting"],
+    ["blocked_by_uninvokable_assignee", "waiting"],
+  ];
+
+  it("maps every reason to its operator verb", () => {
+    for (const [reason, verb] of cases) {
+      expect(attentionVerb(reason)).toBe(verb);
+    }
+  });
+
+  it("exposes a label and icon for every verb", () => {
+    for (const [, verb] of cases) {
+      expect(ATTENTION_VERB_LABEL[verb]).toBeTruthy();
+      expect(ATTENTION_VERB_ICON[verb]).toBeTruthy();
+    }
+  });
+});
+
+describe("primaryAttentionAction", () => {
+  it("approve with an approvalId → approval kind", () => {
+    const a = primaryAttentionAction(
+      makeAttention({ reason: "pending_board_decision", approvalId: "ap-1" }),
+    );
+    expect(a).toMatchObject({ verb: "approve", kind: "approval", approvalId: "ap-1" });
+  });
+
+  it("approve without an approvalId → navigate", () => {
+    const a = primaryAttentionAction(
+      makeAttention({ reason: "missing_successful_run_disposition", approvalId: null }),
+    );
+    expect(a.kind).toBe("navigate");
+  });
+
+  it("review → reviewAccept and carries the leaf issue", () => {
+    const leaf = makeIssueRef("HIV-4");
+    const a = primaryAttentionAction(
+      makeAttention({ reason: "in_review_without_action_path", leafIssue: leaf }),
+    );
+    expect(a).toMatchObject({ verb: "review", kind: "reviewAccept", targetIssueRef: leaf });
+  });
+
+  it("answer with an interactionId → answer kind", () => {
+    const a = primaryAttentionAction(
+      makeAttention({ reason: "pending_user_decision", interactionId: "ix-1" }),
+    );
+    expect(a).toMatchObject({ verb: "answer", kind: "answer", interactionId: "ix-1" });
+  });
+
+  it("unblock and recover → navigate", () => {
+    expect(primaryAttentionAction(makeAttention({ reason: "blocked_by_unassigned_issue" })).kind).toBe(
+      "navigate",
+    );
+    expect(primaryAttentionAction(makeAttention({ reason: "open_recovery_issue" })).kind).toBe(
+      "navigate",
+    );
+  });
+
+  it("waiting → info (no actionable control)", () => {
+    const a = primaryAttentionAction(makeAttention({ reason: "external_owner_action" }));
+    expect(a).toMatchObject({ verb: "waiting", kind: "info" });
+  });
+
+  it("prefers recoveryIssue over leafIssue as the navigate target", () => {
+    const leaf = makeIssueRef("HIV-4");
+    const recovery = makeIssueRef("HIV-9");
+    const a = primaryAttentionAction(
+      makeAttention({ reason: "open_recovery_issue", leafIssue: leaf, recoveryIssue: recovery }),
+    );
+    expect(a.targetIssueRef).toEqual(recovery);
+  });
+
+  it("defaults the label to the attention action label", () => {
+    const a = primaryAttentionAction(makeAttention({ action: { label: "Resolve HIV-4", detail: "x" } }));
+    expect(a.label).toBe("Resolve HIV-4");
+    expect(a.detail).toBe("x");
   });
 });

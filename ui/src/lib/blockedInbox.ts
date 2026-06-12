@@ -1,6 +1,7 @@
 import type {
   Issue,
   IssueBlockedInboxAttention,
+  IssueBlockedInboxIssueRef,
   IssueBlockedInboxReason,
   IssueBlockedInboxSeverity,
 } from "@paperclipai/shared";
@@ -272,4 +273,105 @@ export function formatStoppedAge(stoppedSinceAt: string | null, now: number = Da
   }
   const mo = Math.floor(seconds / (86_400 * 30));
   return `stopped ${mo}mo`;
+}
+
+// ── Operator-facing "verb" layer ────────────────────────────────────────────
+// Collapses the 12 internal blocked reasons into the 6 verbs an operator acts
+// on. This is the single source of truth the Next-action banner (and later the
+// board badges / action inbox) render from.
+
+export type AttentionVerb =
+  | "answer"
+  | "approve"
+  | "review"
+  | "unblock"
+  | "recover"
+  | "waiting";
+
+const VERB_BY_REASON: Record<IssueBlockedInboxReason, AttentionVerb> = {
+  pending_user_decision: "answer",
+  pending_board_decision: "approve",
+  missing_successful_run_disposition: "approve",
+  in_review_without_action_path: "review",
+  invalid_review_participant: "review",
+  blocked_by_unassigned_issue: "unblock",
+  blocked_by_assigned_backlog_issue: "unblock",
+  blocked_by_cancelled_issue: "unblock",
+  blocked_chain_stalled: "recover",
+  open_recovery_issue: "recover",
+  external_owner_action: "waiting",
+  blocked_by_uninvokable_assignee: "waiting",
+};
+
+export const ATTENTION_VERB_LABEL: Record<AttentionVerb, string> = {
+  answer: "Answer",
+  approve: "Approve",
+  review: "Review",
+  unblock: "Unblock",
+  recover: "Recover",
+  waiting: "Waiting",
+};
+
+// Lucide icon names — the banner maps these to the imported components, keeping
+// this module free of any React/icon dependency.
+export const ATTENTION_VERB_ICON: Record<AttentionVerb, string> = {
+  answer: "MessageCircleQuestion",
+  approve: "CheckCircle2",
+  review: "Eye",
+  unblock: "Link",
+  recover: "Wrench",
+  waiting: "Clock",
+};
+
+export function attentionVerb(reason: IssueBlockedInboxReason): AttentionVerb {
+  return VERB_BY_REASON[reason] ?? "unblock";
+}
+
+// What the banner's primary control should do. `kind` tells the banner which
+// affordance to render; the ids/refs carry the handle needed to resolve it.
+export type AttentionActionKind =
+  | "approval" // approve/reject via approvalId
+  | "reviewAccept" // accept the review → done (+ request-changes secondary)
+  | "answer" // open the interaction/thread to answer
+  | "navigate" // go to the blocker/recovery issue that owns the next step
+  | "info"; // nothing to click (waiting on someone else)
+
+export interface PrimaryAttentionAction {
+  verb: AttentionVerb;
+  kind: AttentionActionKind;
+  label: string;
+  detail: string | null;
+  approvalId: string | null;
+  interactionId: string | null;
+  targetIssueRef: IssueBlockedInboxIssueRef | null;
+}
+
+export function primaryAttentionAction(
+  attention: IssueBlockedInboxAttention,
+): PrimaryAttentionAction {
+  const verb = attentionVerb(attention.reason);
+  const base = {
+    verb,
+    label: attention.action.label,
+    detail: attention.action.detail,
+    approvalId: attention.approvalId,
+    interactionId: attention.interactionId,
+    targetIssueRef: attention.recoveryIssue ?? attention.leafIssue ?? null,
+  };
+
+  switch (verb) {
+    case "approve":
+      // Only an approval id gives a one-click approve/reject; otherwise the
+      // operator still navigates to make the call.
+      return { ...base, kind: attention.approvalId ? "approval" : "navigate" };
+    case "review":
+      return { ...base, kind: "reviewAccept" };
+    case "answer":
+      return { ...base, kind: attention.interactionId ? "answer" : "navigate" };
+    case "unblock":
+    case "recover":
+      return { ...base, kind: "navigate" };
+    case "waiting":
+      return { ...base, kind: "info" };
+  }
 }
