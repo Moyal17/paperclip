@@ -1,4 +1,13 @@
 export {
+  gitPushRequestSchema,
+  openPullRequestSchema,
+  gitOpsProjectPolicySchema,
+  type GitPushRequest,
+  type OpenPullRequest,
+  type GitOpsProjectPolicy,
+} from "./git-ops.js";
+
+export {
   instanceGeneralSettingsSchema,
   patchInstanceGeneralSettingsSchema,
   type InstanceGeneralSettings,
