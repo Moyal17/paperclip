@@ -86,4 +86,59 @@ wrapper scripts themselves are committed under `scripts/`.)
 - Consider wrapping activate() gate creation + child materialization in one tx
   when C1 makes gates load-bearing.
 
-### Next: A2 — worktree-per-issue auto-provision.
+### Full server suite (post-session)
+2311 passed / 20 failed — **all 20 pre-existing or environmental**, none from A1:
+- 10× `issue-comment-reopen` / `issue-dependency-wakeups` route 500s — confirmed
+  failing on baseline (reverted my `issues.ts` → still 500).
+- 2× `paperclip-skill-utils` ENOENT — missing skill files in this checkout.
+- 1× `openapi-routes` "covers mounted routes" — was already red (`plans.ts`
+  undocumented + 4 MyHive routes missing). Removed my contribution by documenting
+  `/agent-decide` (commit `docs(server): document the agent-decide gate endpoint`).
+- (remaining capped lines are more of the same 500s.)
+
+---
+
+## Session 2 — A2 (worktree-per-issue) — 2026-06-12
+
+**Key finding that reshaped A2:** the worktree-per-issue machinery already runs —
+`heartbeat.ts:8156` calls `realizeExecutionWorkspace` and persists a `git_worktree`
+execution workspace (branch from a template) whenever an agent runs on an issue.
+The plan's sketch (provision inline in `issueService.update()` on the in_progress
+transition) would duplicate that fragile path and run `git` inside the issue
+transaction — the exact failure mode behind the env 500s above.
+
+**Decision (operator-approved): leverage existing + convention.** No second
+provisioner.
+
+- **Branch convention + isolation = pure project config.**
+  `projects.executionWorkspacePolicy.workspaceStrategy.branchTemplate =
+  "issue/{{issue.identifier}}-{{slug}}"` + `defaultMode: isolated_workspace` +
+  `type: git_worktree`. The realization path already consumes branchTemplate
+  (`workspace-runtime.ts:1120`). Documented in `claude-docs/dev-team-project-setup.md`.
+- **Code: one terminal-cleanup hook.** When a dev_team-plan issue hits
+  done/cancelled, flag its **owned** worktree (`sourceIssueId` match +
+  `git_worktree`) `cleanupEligibleAt` + `cleanupReason`. Inside the update() tx,
+  best-effort (try/catch, never rolls back), branches never auto-deleted.
+- No schema change, no migration.
+
+### Verification
+- `plan-gate-workspace-cleanup` embedded-pg (4): done flags; cancelled reason;
+  non-dev_team not flagged; non-owned (shared) not flagged.
+- A1 parity + activation + agent-decide still green (23 passed together).
+- `pnpm --filter server typecheck`: clean.
+
+### Gates
+- Code Review: APPROVED (1 LOW: catch swallows flag error by design — correct for
+  a non-load-bearing lifecycle flag).
+- Wiring: APPROVED — trace PATCH→update tx→flag complete; convention is config,
+  consumed by existing realization.
+
+### Commits
+- `feat(server): flag dev_team worktree for cleanup on terminal status`
+- `docs: dev-team project setup (isolated worktrees + branch convention)`
+
+### Carry-forward
+- Configure the Hive project's executionWorkspacePolicy per the setup doc before
+  the B1 pilot (so pilot issues realize `issue/<id>-<slug>` worktrees).
+
+### Next: A3 — GitHub PR pipeline (+ E2 caveman comms standard).
