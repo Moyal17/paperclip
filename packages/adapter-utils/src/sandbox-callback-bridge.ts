@@ -67,6 +67,9 @@ export const DEFAULT_SANDBOX_CALLBACK_BRIDGE_ROUTE_ALLOWLIST: readonly SandboxCa
   { method: "PATCH", path: /^\/api\/issues\/[^/]+$/ },
   { method: "GET", path: /^\/api\/issues\/[^/]+\/approvals$/ },
 
+  // Git-ops: server-side push + PR (token stays server-side, never in sandbox)
+  { method: "POST", path: /^\/api\/issues\/[^/]+\/git\/(?:push|pr)$/ },
+
   // Issue-thread interactions (suggest tasks, ask questions, request confirmation)
   { method: "GET", path: /^\/api\/issues\/[^/]+\/interactions(?:\/[^/]+)?$/ },
   { method: "POST", path: /^\/api\/issues\/[^/]+\/interactions$/ },
