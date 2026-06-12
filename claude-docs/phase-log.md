@@ -272,3 +272,56 @@ blocks activation). `server/src/services/plans.ts`.
 6. Set a plan budget cap so E6 installs the runaway guard before unattended runs.
 
 ### Next: A4 (gate ledger UI) + A5 (cost UI) + E4 (model tiering) — all post-pilot-optional.
+
+---
+
+## Session 5 — A4 (gate ledger UI) + A5 (cost visibility) + E4 (model tiering) — 2026-06-12
+
+Bundle 4 complete (A4 + A5 + E4; E6 shipped session 4).
+
+### A4 — Gate audit ledger UI
+- `ui/src/components/hive/GateLedger.tsx` — per-issue gate decisions (plan/code/
+  wiring, verdict, responsible agent, decided-at, note) read from the issue's
+  gate_* approval rows. Slots above the cost summary on IssueDetail; null when
+  no gates. Status conveyed by icon + text (not color alone).
+- `ui/src/components/hive/PlanGateRollup.tsx` — plan-root summary in
+  PlanDetailDrawer: plan-approval verdict + passed/total for code & wiring,
+  filtered from company approvals by payload.planRootIssueId.
+- `ui/src/lib/gates.ts` — gate type set, labels, ordering, payload accessors.
+
+### A5 — Cost visibility (cap setter was the only gap)
+- Per-issue cost widget (IssueDetail) and company/plan budget meter
+  (HiveBoardPage BudgetMeterWidget) already existed.
+- New: `PATCH /plans/:issueId/budget` → planService.setBudgetCaps, which for a
+  dev_team plan also re-installs the E6 hard-stop policy from the new caps
+  (upsert in place) so a cap edited after activation enforces live.
+- `plansApi.setBudget` + a Save action wired into the previously display-only
+  token-cap input in PlanDetailDrawer.
+
+### E4 — Model tiering wake-through
+- `modelProfile` optional enum (MODEL_PROFILE_KEYS) on wakeAgentSchema.
+- Wake route surfaces it as contextSnapshot.modelProfile, which
+  resolveModelProfileApplication already consumes — waking a reviewer/
+  implementor with modelProfile:"cheap" runs that heartbeat on the cheap tier.
+  Operator config (which agents/stages use cheap) remains a per-agent
+  runtimeConfig setting.
+
+### Verification
+- typecheck clean (shared/server/ui).
+- GateLedger 3, hive dir 12, plan-gate-activation 10 (incl A5 re-sync),
+  wake-model-profile 6, heartbeat-model-profile 5 — all green.
+
+### Gates
+- A4, A5, E4: Code Review + Wiring APPROVED (cycle 1 each).
+
+### Commits
+- `feat(ui): gate audit ledger on issues and plan rollup (A4)`
+- `feat(server): plan budget cap setter that re-syncs the hard-stop policy (A5)`
+- `feat(ui): wire the plan budget cap setter in the plan drawer (A5)`
+- `feat(shared): accept a modelProfile override on wakeAgentSchema (E4)`
+- `feat(server): thread wake modelProfile into the heartbeat context (E4)`
+
+### Phase A + Track E status
+A1–A6 + E1/E2/E4/E6 done. Remaining plan items: B1 pilot (operator setup, no
+code), B2/B3, C1–C3, E5. The factory PR loop + gates + cost/budget visibility +
+runaway guard + model tiering are all in place.
