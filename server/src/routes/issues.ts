@@ -1553,7 +1553,9 @@ export function issueRoutes(
       .select({ gateProfile: planDetails.gateProfile })
       .from(planDetails)
       .where(eq(planDetails.issueId, input.existing.planRootIssueId));
-    if (plan?.gateProfile !== "dev_team") return none;
+    // Only profiles that carry a done-gate reach the readiness check. solo/none
+    // are never gated; light + dev_team are (the pure fn applies the right reqs).
+    if (plan?.gateProfile !== "dev_team" && plan?.gateProfile !== "light") return none;
 
     const linkedApprovals = await issueApprovalsSvc.listApprovalsForIssue(input.existing.id);
     const reviewGateStatuses = linkedApprovals
@@ -1574,10 +1576,13 @@ export function issueRoutes(
     if (reasons.length === 0) return none;
 
     if (input.actorType === "agent") {
-      throw unprocessable(
-        "A dev_team issue cannot be marked done until its pull request is open and its code and wiring review gates pass.",
-        { code: "dev_team_done_blocked", reasons },
-      );
+      // Message reflects the actual unmet reasons so it stays truthful across
+      // profiles (light has no PR requirement; dev_team does).
+      const needsPr = reasons.includes("missing_pr");
+      const detail = needsPr
+        ? "This issue cannot be marked done until its pull request is open and its review gates pass."
+        : "This issue cannot be marked done until its review gates pass.";
+      throw unprocessable(detail, { code: "dev_team_done_blocked", reasons });
     }
     return { overrideReasons: reasons };
   }

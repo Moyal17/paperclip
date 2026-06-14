@@ -260,10 +260,17 @@ export type IssueBlockedInboxReason =
   | "external_owner_action"
   | "open_recovery_issue";
 
-// Advisory dev-team gate protocol on a plan. 'none' = no gates; 'dev_team' =
-// plan-approval + per-leaf code-review + wiring-review gates materialized at
-// activate and routed to the designated agents.
-export type PlanGateProfile = "none" | "dev_team";
+// Advisory dev-team gate protocol on a plan, right-sized per task:
+//   'none'     — no gates (implementor only).
+//   'solo'     — no gates; the done-gate also skips the PR + review requirement
+//                (single-developer, synchronous-style work).
+//   'light'    — one code-review gate per leaf; done requires that gate, no PR.
+//   'dev_team' — full: plan-approval + per-leaf code-review + wiring-review,
+//                done requires an open PR + both review gates (the original).
+// Gates are materialized at activation and routed to the designated agents.
+// The platform may force a plan UP to 'dev_team' for high-risk surfaces (see
+// gate-triage.ts) but never down.
+export type PlanGateProfile = "none" | "solo" | "light" | "dev_team";
 
 export const GATE_APPROVAL_TYPES = {
   planApproval: "gate_plan_approval",

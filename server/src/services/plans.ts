@@ -10,6 +10,7 @@ import {
   buildGateApprovalsForActivation,
   isGateApprovalType,
 } from "./plan-gates.js";
+import { resolveEffectiveGateProfile } from "./gate-triage.js";
 import { logger } from "../middleware/logger.js";
 import { conflict, notFound, unprocessable } from "../errors.js";
 
@@ -34,6 +35,11 @@ export interface CreatePlanInput {
   budgetCapCents?: number | null;
   budgetCapTokens?: number | null;
   gateProfile?: PlanGateProfile | null;
+  // Declared scope for the Layer 0 triage floor. When the touched paths hit a
+  // high-risk surface (auth/payments/migration/secrets/public-api) or exceed the
+  // file-count threshold, the persisted gateProfile is forced up to dev_team.
+  touchedPaths?: string[] | null;
+  fileCount?: number | null;
   assigneeAgentId?: string | null;
   projectId?: string | null;
   createdByUserId?: string | null;
@@ -63,6 +69,7 @@ export function planService(db: Db) {
     planRootIssueId: string,
     leafIssueIds: string[],
     actor: { agentId: string | null; userId: string | null },
+    gateProfile: PlanGateProfile | null,
   ): Promise<string[]> {
     const urlKeys = Array.from(new Set(Object.values(GATE_DESIGNATED_URL_KEY)));
     const designatedByUrlKey: Record<string, string | null> = {};
@@ -81,6 +88,7 @@ export function planService(db: Db) {
       planRootIssueId,
       leafIssueIds,
       designatedByUrlKey,
+      gateProfile,
     });
 
     const createdApprovalIds: string[] = [];
@@ -202,7 +210,10 @@ export function planService(db: Db) {
           tiers: tiers as unknown as Record<string, unknown>[],
           budgetCapCents: input.budgetCapCents ?? null,
           budgetCapTokens: input.budgetCapTokens ?? null,
-          gateProfile: input.gateProfile ?? "none",
+          gateProfile: resolveEffectiveGateProfile(input.gateProfile, {
+            touchedPaths: input.touchedPaths,
+            fileCount: input.fileCount,
+          }),
           createdByUserId: input.createdByUserId ?? null,
           createdByAgentId: input.createdByAgentId ?? null,
         })
@@ -291,12 +302,16 @@ export function planService(db: Db) {
       // pending approvals so the board surfaces them, but nothing here blocks
       // activation or any downstream transition.
       let gateApprovalIds: string[] = [];
-      if (details.gateProfile === "dev_team") {
+      // Any gated profile (solo/light/dev_team) arms the runaway budget policy —
+      // solo/light still spawn an implementor that burns tokens. createActivationGates
+      // emits the profile-sized gate set (0 for solo, 1/leaf for light, full for dev_team).
+      if (details.gateProfile !== "none") {
         gateApprovalIds = await createActivationGates(
           details.companyId,
           issueId,
           createdChildren.map((c) => c.id),
           actor,
+          details.gateProfile as PlanGateProfile,
         );
         await syncIssueBudgetPolicies(
           details.companyId,
@@ -396,7 +411,7 @@ export function planService(db: Db) {
       // bites. upsertPolicy is keyed by scope+metric+window, so this updates the
       // existing E6 policy in place; deactivateCleared makes a removed cap
       // deactivate its stale policy instead of leaving it enforcing the old limit.
-      if (updated?.gateProfile === "dev_team") {
+      if (updated?.gateProfile && updated.gateProfile !== "none") {
         await syncIssueBudgetPolicies(
           updated.companyId,
           issueId,

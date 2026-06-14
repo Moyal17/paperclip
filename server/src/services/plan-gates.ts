@@ -2,6 +2,7 @@ import {
   GATE_APPROVAL_TYPES,
   type GateApprovalType,
   type IssueBlockedInboxReason,
+  type PlanGateProfile,
 } from "@paperclipai/shared";
 
 // Pure helpers for the advisory dev-team gate protocol. No DB access here — the
@@ -57,24 +58,39 @@ export interface GateActivationInput {
   leafIssueIds: string[];
   // urlKey → agentId for the three gate roles (null/absent = board fallback).
   designatedByUrlKey: Record<string, string | null>;
+  // Gate profile right-sizes the set. Defaults to dev_team (full) for callers
+  // that predate triage.
+  gateProfile?: PlanGateProfile | null;
 }
 
-// Builds the full set of gate approvals for a dev_team plan activation:
-// one plan-approval gate on the plan root, plus code-review + wiring-review
-// gates on every materialized leaf.
+// Builds the gate-approval set for a plan activation, sized to the profile:
+//   solo     → no gates.
+//   light    → one code-review gate per leaf (single highest-value reviewer:
+//              correctness + security). NOTE: the triage plan envisaged picking
+//              code-review vs wiring-review by change nature, but per-leaf diffs
+//              are not available at activation, so light deliberately uses
+//              code-review only; diff-based reviewer selection is deferred.
+//   dev_team → plan-approval on the root + code-review + wiring-review per leaf
+//              (the original full set).
+//   none     → no gates.
 export function buildGateApprovalsForActivation(
   input: GateActivationInput,
 ): GateApprovalSpec[] {
   const resolve = (type: GateApprovalType): string | null =>
     input.designatedByUrlKey[GATE_DESIGNATED_URL_KEY[type]] ?? null;
 
-  const specs: GateApprovalSpec[] = [
-    {
+  const profile: PlanGateProfile = input.gateProfile ?? "dev_team";
+  if (profile === "none" || profile === "solo") return [];
+
+  const specs: GateApprovalSpec[] = [];
+
+  if (profile === "dev_team") {
+    specs.push({
       type: GATE_APPROVAL_TYPES.planApproval,
       issueId: input.planRootIssueId,
       designatedAgentId: resolve(GATE_APPROVAL_TYPES.planApproval),
-    },
-  ];
+    });
+  }
 
   for (const leafId of input.leafIssueIds) {
     specs.push({
@@ -82,22 +98,27 @@ export function buildGateApprovalsForActivation(
       issueId: leafId,
       designatedAgentId: resolve(GATE_APPROVAL_TYPES.codeReview),
     });
-    specs.push({
-      type: GATE_APPROVAL_TYPES.wiringReview,
-      issueId: leafId,
-      designatedAgentId: resolve(GATE_APPROVAL_TYPES.wiringReview),
-    });
+    if (profile === "dev_team") {
+      specs.push({
+        type: GATE_APPROVAL_TYPES.wiringReview,
+        issueId: leafId,
+        designatedAgentId: resolve(GATE_APPROVAL_TYPES.wiringReview),
+      });
+    }
   }
 
   return specs;
 }
 
-// Fix 3 (B1 gap-fix) — interim C1 hard `done` guard, pure decision.
-// Returns the unmet preconditions for closing a dev_team-gated issue: an open PR
-// and approved code + wiring review gates. Empty array = ready to close. The
-// caller decides what to do with the reasons (throw for an agent actor, log an
-// override for a user/board actor). Non-dev_team or non-`done` transitions are
-// never gated.
+// Fix 3 (B1 gap-fix) + triage — the pure `done`-gate decision, right-sized by
+// profile. Returns the unmet preconditions for closing a gated issue. Empty
+// array = ready to close. The caller decides what to do with the reasons (throw
+// for an agent actor, log an override for a user/board actor).
+//   none / solo → never gated (solo is the fix for the HIV-13 dead-end where a
+//                 shared-branch task could never produce the PR the gate wanted).
+//   light       → its single review gate must be approved; no PR required.
+//   dev_team    → an open PR AND every review gate approved (the original).
+// Non-`done` transitions are never gated.
 export function evaluateDevTeamDoneReadiness(input: {
   gateProfile: string | null | undefined;
   targetStatus: string;
@@ -107,10 +128,11 @@ export function evaluateDevTeamDoneReadiness(input: {
   reviewGateStatuses: string[];
 }): { reasons: string[] } {
   if (input.targetStatus !== "done" || input.currentStatus === "done") return { reasons: [] };
-  if (input.gateProfile !== "dev_team") return { reasons: [] };
+  const profile = input.gateProfile;
+  if (profile !== "dev_team" && profile !== "light") return { reasons: [] };
 
   const reasons: string[] = [];
-  if (!input.prUrl) reasons.push("missing_pr");
+  if (profile === "dev_team" && !input.prUrl) reasons.push("missing_pr");
   if (input.reviewGateStatuses.some((status) => status !== "approved")) reasons.push("gates_pending");
   return { reasons };
 }

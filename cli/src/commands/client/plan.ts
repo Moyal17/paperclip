@@ -40,7 +40,7 @@ export function registerPlanCommands(program: Command): void {
       .option("--assignee-agent-id <id>", "Agent to assign the plan to")
       .option(
         "--gate-profile <profile>",
-        "Gate protocol: none (default) or dev_team (advisory dev-team gates)",
+        "Gate protocol: none (default), solo (no gates, no PR), light (1 code-review gate), or dev_team (full advisory dev-team gates)",
       )
       .option(
         "--project <id>",
@@ -65,8 +65,9 @@ export function registerPlanCommands(program: Command): void {
           if (tokenCap !== null && Number.isNaN(tokenCap)) {
             throw new Error("--token-cap must be an integer");
           }
-          if (opts.gateProfile !== undefined && opts.gateProfile !== "none" && opts.gateProfile !== "dev_team") {
-            throw new Error("--gate-profile must be 'none' or 'dev_team'");
+          const validGateProfiles = ["none", "solo", "light", "dev_team"];
+          if (opts.gateProfile !== undefined && !validGateProfiles.includes(opts.gateProfile)) {
+            throw new Error("--gate-profile must be 'none', 'solo', 'light', or 'dev_team'");
           }
           const payload = {
             companyId: ctx.companyId,

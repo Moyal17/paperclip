@@ -24,7 +24,11 @@ const createPlanSchema = z.object({
   tiers: z.array(planTierSchema).optional(),
   budgetCapCents: z.number().int().nonnegative().nullish(),
   budgetCapTokens: z.number().int().nonnegative().nullish(),
-  gateProfile: z.enum(["none", "dev_team"]).optional(),
+  gateProfile: z.enum(["none", "solo", "light", "dev_team"]).optional(),
+  // Declared scope for the Layer 0 triage floor (gate-triage.ts). Optional —
+  // when present, a high-risk path or large file count forces gateProfile up.
+  touchedPaths: z.array(z.string()).optional(),
+  fileCount: z.number().int().nonnegative().optional(),
   assigneeAgentId: z.string().uuid().nullish(),
   projectId: z.string().uuid().nullish(),
 });
@@ -69,6 +73,8 @@ export function planRoutes(
       budgetCapCents: body.budgetCapCents ?? null,
       budgetCapTokens: body.budgetCapTokens ?? null,
       gateProfile: body.gateProfile ?? "none",
+      touchedPaths: body.touchedPaths ?? null,
+      fileCount: body.fileCount ?? null,
       assigneeAgentId: body.assigneeAgentId ?? null,
       projectId: body.projectId ?? null,
       createdByUserId: actor.actorType === "user" ? actor.actorId : null,
@@ -87,7 +93,9 @@ export function planRoutes(
       details: {
         title: issue.title,
         assigneeAgentId: body.assigneeAgentId ?? null,
-        gateProfile: body.gateProfile ?? "none",
+        // Effective profile (the Layer 0 floor may have raised the request).
+        gateProfile: planDetails.gateProfile,
+        requestedGateProfile: body.gateProfile ?? "none",
       },
     });
 

@@ -47,13 +47,28 @@ describe("evaluateDevTeamDoneReadiness", () => {
     ).toEqual(["missing_pr"]);
   });
 
-  it("never gates a non-dev_team plan", () => {
+  it("never gates a none or solo plan", () => {
     expect(
       evaluateDevTeamDoneReadiness({ ...base, gateProfile: "none", prUrl: null, reviewGateStatuses: ["pending"] }).reasons,
     ).toEqual([]);
     expect(
       evaluateDevTeamDoneReadiness({ ...base, gateProfile: null, prUrl: null, reviewGateStatuses: ["pending"] }).reasons,
     ).toEqual([]);
+    // solo is the HIV-13 fix: a shared-branch task with no PR must still close.
+    expect(
+      evaluateDevTeamDoneReadiness({ ...base, gateProfile: "solo", prUrl: null, reviewGateStatuses: [] }).reasons,
+    ).toEqual([]);
+  });
+
+  it("gates a light plan on its review gate but never requires a PR", () => {
+    // No PR + approved gate → ready (light skips missing_pr).
+    expect(
+      evaluateDevTeamDoneReadiness({ ...base, gateProfile: "light", prUrl: null, reviewGateStatuses: ["approved"] }).reasons,
+    ).toEqual([]);
+    // Pending gate → blocked on gates only (not missing_pr).
+    expect(
+      evaluateDevTeamDoneReadiness({ ...base, gateProfile: "light", prUrl: null, reviewGateStatuses: ["pending"] }).reasons,
+    ).toEqual(["gates_pending"]);
   });
 
   it("never gates a transition that is not to done", () => {
