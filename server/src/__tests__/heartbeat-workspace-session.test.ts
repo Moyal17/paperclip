@@ -1288,17 +1288,23 @@ describe("prioritizeProjectWorkspaceCandidatesForRun", () => {
 });
 
 describe("parseSessionCompactionPolicy", () => {
-  it("disables Paperclip-managed rotation by default for codex and claude local", () => {
+  it("disables Paperclip-managed rotation by default for codex local", () => {
     expect(parseSessionCompactionPolicy(buildAgent("codex_local"))).toEqual({
       enabled: true,
       maxSessionRuns: 0,
       maxRawInputTokens: 0,
       maxSessionAgeHours: 0,
     });
+  });
+
+  it("rotates claude local on raw input tokens by default (W3 — caps replay cost)", () => {
+    // claude_local self-manages context overflow, but cost still accrues from
+    // transcript replay across spaced wakes. We rotate on tokens below the CLI's
+    // native-compaction point; runs/age stay disabled.
     expect(parseSessionCompactionPolicy(buildAgent("claude_local"))).toEqual({
       enabled: true,
       maxSessionRuns: 0,
-      maxRawInputTokens: 0,
+      maxRawInputTokens: 400_000,
       maxSessionAgeHours: 0,
     });
   });

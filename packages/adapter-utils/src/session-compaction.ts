@@ -36,6 +36,28 @@ const ADAPTER_MANAGED_SESSION_POLICY: SessionCompactionPolicy = {
   maxSessionAgeHours: 0,
 };
 
+// Claude's CLI manages its own context window (it auto-compacts near the model
+// context ceiling), so native compaction prevents *overflow*. It does not
+// prevent *cost*: across spaced heartbeat wakes, `claude --resume` replays the
+// accumulated transcript at full price (the wakes outlive Anthropic's prompt
+// cache TTL), so per-wake input tokens climb until the CLI finally compacts.
+// We rotate on raw input tokens *below* that native-compaction point: once a
+// wake replays this many input tokens, the next run starts a fresh session
+// carrying the handoff markdown + continuation summary, flattening the cost
+// curve. Token-only (runs/age stay 0) so we never rotate for surprising
+// age/run-count reasons. 400k sits well under the per-run token kill ceiling
+// (1M) and is large enough that the handoff + continuation summary can carry
+// task state without rotating mid-step. Tunable per agent via
+// runtimeConfig.heartbeat.sessionCompaction.maxRawInputTokens.
+const DEFAULT_CLAUDE_MAX_RAW_INPUT_TOKENS = 400_000;
+
+const CLAUDE_NATIVE_COST_ROTATION_POLICY: SessionCompactionPolicy = {
+  enabled: true,
+  maxSessionRuns: 0,
+  maxRawInputTokens: DEFAULT_CLAUDE_MAX_RAW_INPUT_TOKENS,
+  maxSessionAgeHours: 0,
+};
+
 export const LEGACY_SESSIONED_ADAPTER_TYPES = new Set([
   "acpx_local",
   "claude_local",
@@ -57,7 +79,7 @@ export const ADAPTER_SESSION_MANAGEMENT: Record<string, AdapterSessionManagement
   claude_local: {
     supportsSessionResume: true,
     nativeContextManagement: "confirmed",
-    defaultSessionCompaction: ADAPTER_MANAGED_SESSION_POLICY,
+    defaultSessionCompaction: CLAUDE_NATIVE_COST_ROTATION_POLICY,
   },
   codex_local: {
     supportsSessionResume: true,
