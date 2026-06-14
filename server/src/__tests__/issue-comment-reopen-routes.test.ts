@@ -64,6 +64,10 @@ const mockInstanceSettingsService = vi.hoisted(() => ({
       feedbackDataSharingPreference: "prompt",
     },
   })),
+  // The issues PATCH handler reads experimental.strictBoardTransitions for the
+  // MyHive board stage-machine backstop on every status change; default it off so
+  // these wake/reopen cases exercise the normal path.
+  getExperimental: vi.fn(async () => ({ strictBoardTransitions: false })),
   listCompanyIds: vi.fn(async () => ["company-1"]),
 }));
 const mockRoutineService = vi.hoisted(() => ({
