@@ -10,7 +10,7 @@ includes:
   - agents/cto/AGENTS.md
   - agents/qa/AGENTS.md
   - projects/first-project/PROJECT.md
-defaultInstall: true
+defaultInstall: false
 recommendedForCompanyTypes:
   - startup
   - software

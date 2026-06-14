@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "packageName": "@paperclipai/teams-catalog",
   "packageVersion": "0.1.0",
-  "generatedAt": "2026-06-04T18:03:41.262Z",
+  "generatedAt": "2026-06-14T21:03:32.581Z",
   "teams": [
     {
       "id": "paperclipai:bundled:company-defaults:core-exec-team",
@@ -15,7 +15,7 @@
       "path": "catalog/bundled/company-defaults/core-exec-team",
       "entrypoint": "TEAM.md",
       "schema": "agentcompanies/v1",
-      "defaultInstall": true,
+      "defaultInstall": false,
       "recommendedForCompanyTypes": [
         "startup",
         "software",
@@ -96,8 +96,8 @@
         {
           "path": "TEAM.md",
           "kind": "team",
-          "sizeBytes": 2144,
-          "sha256": "4ab4f57f147e89a56a6753755d7ef142d91741b3c0159f2e53fb333cd2779eaf"
+          "sizeBytes": 2145,
+          "sha256": "a707fe466fa45fa876ca68de8dcfbbdad079fd474bb3412e88d339a35cf66289"
         },
         {
           "path": "agents/ceo/AGENTS.md",
@@ -132,7 +132,7 @@
       ],
       "trustLevel": "markdown_only",
       "compatibility": "compatible",
-      "contentHash": "sha256:0f20e9d56124c1dc90a1e4b128fabd863538bcc935117220f719d9620f7c89f1"
+      "contentHash": "sha256:b871f8dab28a98542f2f0abe68b772f3b368b18f36a080b32c62bcf4c43de7f3"
     },
     {
       "id": "paperclipai:bundled:product:product-design",
@@ -237,6 +237,220 @@
       "trustLevel": "markdown_only",
       "compatibility": "compatible",
       "contentHash": "sha256:15a04b36f31d4c9a391bb499c92e91fedfcc237cfa6c3d41ea3ddb441bc85c5b"
+    },
+    {
+      "id": "paperclipai:bundled:software-development:dev-team",
+      "key": "paperclipai/bundled/software-development/dev-team",
+      "kind": "bundled",
+      "category": "software-development",
+      "slug": "dev-team",
+      "name": "Development Team",
+      "description": "Elite engineering department with an enforced plan/code/wiring gate protocol — a CTO orchestrator, an Architect plan gate, parallel Code Reviewer and Wiring Expert gates, and two Implementors. Installs gate-ready, with the dev-roles workflow and review skills vendored in-package.",
+      "path": "catalog/bundled/software-development/dev-team",
+      "entrypoint": "TEAM.md",
+      "schema": "agentcompanies/v1",
+      "defaultInstall": true,
+      "recommendedForCompanyTypes": [
+        "software",
+        "startup",
+        "generalist"
+      ],
+      "tags": [
+        "default",
+        "engineering",
+        "gates",
+        "code-review",
+        "software-development"
+      ],
+      "counts": {
+        "agents": 6,
+        "projects": 0,
+        "tasks": 0,
+        "routines": 0,
+        "localSkills": 7,
+        "catalogSkills": 0,
+        "externalSkillSources": 0
+      },
+      "rootAgentSlugs": [
+        "cto"
+      ],
+      "agentSlugs": [
+        "architect",
+        "code-reviewer",
+        "cto",
+        "implementor-1",
+        "implementor-2",
+        "wiring-expert"
+      ],
+      "projectSlugs": [],
+      "requiredSkills": [
+        {
+          "type": "local",
+          "ref": "code-review",
+          "agentSlugs": [
+            "architect",
+            "code-reviewer",
+            "implementor-1",
+            "implementor-2",
+            "wiring-expert"
+          ],
+          "resolved": true,
+          "localPath": "skills/code-review/SKILL.md"
+        },
+        {
+          "type": "local",
+          "ref": "context-engineering",
+          "agentSlugs": [
+            "architect",
+            "implementor-1",
+            "implementor-2"
+          ],
+          "resolved": true,
+          "localPath": "skills/context-engineering/SKILL.md"
+        },
+        {
+          "type": "local",
+          "ref": "debugging-and-error-recovery",
+          "agentSlugs": [
+            "code-reviewer",
+            "implementor-1",
+            "implementor-2",
+            "wiring-expert"
+          ],
+          "resolved": true,
+          "localPath": "skills/debugging-and-error-recovery/SKILL.md"
+        },
+        {
+          "type": "local",
+          "ref": "dev-roles",
+          "agentSlugs": [
+            "cto"
+          ],
+          "resolved": true,
+          "localPath": "skills/dev-roles/SKILL.md"
+        },
+        {
+          "type": "local",
+          "ref": "incremental-implementation",
+          "agentSlugs": [
+            "implementor-1",
+            "implementor-2"
+          ],
+          "resolved": true,
+          "localPath": "skills/incremental-implementation/SKILL.md"
+        },
+        {
+          "type": "local",
+          "ref": "source-driven-development",
+          "agentSlugs": [
+            "architect",
+            "implementor-1",
+            "implementor-2"
+          ],
+          "resolved": true,
+          "localPath": "skills/source-driven-development/SKILL.md"
+        },
+        {
+          "type": "local",
+          "ref": "task-timing",
+          "agentSlugs": [
+            "cto"
+          ],
+          "resolved": true,
+          "localPath": "skills/task-timing/SKILL.md"
+        }
+      ],
+      "envInputs": [],
+      "sourceRefs": [],
+      "files": [
+        {
+          "path": "TEAM.md",
+          "kind": "team",
+          "sizeBytes": 3022,
+          "sha256": "791ebc1dbde710d91515abf8df77a34a3d9a66b53ab555efa8061352738d880c"
+        },
+        {
+          "path": "agents/architect/AGENTS.md",
+          "kind": "agent",
+          "sizeBytes": 2717,
+          "sha256": "5090f3cc8760ea7d57b837f57792a5f23f34295ea1181afde824864ef571d076"
+        },
+        {
+          "path": "agents/code-reviewer/AGENTS.md",
+          "kind": "agent",
+          "sizeBytes": 2447,
+          "sha256": "08cfa804066300037f44705ce33085640e6438e148cf7d532b56828b25c99b4a"
+        },
+        {
+          "path": "agents/cto/AGENTS.md",
+          "kind": "agent",
+          "sizeBytes": 3282,
+          "sha256": "7d84b6f79c47303212d9f6636bb641b17ca41dfeea3d3fa71b5d14008741c375"
+        },
+        {
+          "path": "agents/implementor-1/AGENTS.md",
+          "kind": "agent",
+          "sizeBytes": 4040,
+          "sha256": "a177283ec936046d211559be9a4c4bdde8cd467dda3ef0745bf27b2c446d11c6"
+        },
+        {
+          "path": "agents/implementor-2/AGENTS.md",
+          "kind": "agent",
+          "sizeBytes": 4165,
+          "sha256": "e2291d785af62607c13f3064e10cde227ff365dd636baf30679f976bc906af6e"
+        },
+        {
+          "path": "agents/wiring-expert/AGENTS.md",
+          "kind": "agent",
+          "sizeBytes": 3640,
+          "sha256": "f743af511db28ecb1cb6aff2265abc1730d9d92fc78dd3bc56d032288fff8ca4"
+        },
+        {
+          "path": "skills/code-review/SKILL.md",
+          "kind": "skill",
+          "sizeBytes": 21652,
+          "sha256": "33fb77e7a22fa8d5d4caed592ac8a13dec3d09995f9ff9b097066505e8bb9d1a"
+        },
+        {
+          "path": "skills/context-engineering/SKILL.md",
+          "kind": "skill",
+          "sizeBytes": 12057,
+          "sha256": "ef4ab0ad9db787c2cedff2d45ea608a77df4d62b007bcf1ef9db168068919565"
+        },
+        {
+          "path": "skills/debugging-and-error-recovery/SKILL.md",
+          "kind": "skill",
+          "sizeBytes": 11710,
+          "sha256": "abb848f7002c2bd917fb09c5c0859efb15e121b3dc268f159cf426700698668b"
+        },
+        {
+          "path": "skills/dev-roles/SKILL.md",
+          "kind": "skill",
+          "sizeBytes": 9296,
+          "sha256": "6fca7c50662426f17cebcbc1217db1d572d9b6356b9c4a1d8193aba9de40e9c9"
+        },
+        {
+          "path": "skills/incremental-implementation/SKILL.md",
+          "kind": "skill",
+          "sizeBytes": 10042,
+          "sha256": "409060c7b4972c94f3cc325e52a778d1bfb7d08dac5e2df8678c5c0d730841cc"
+        },
+        {
+          "path": "skills/source-driven-development/SKILL.md",
+          "kind": "skill",
+          "sizeBytes": 9412,
+          "sha256": "2edaa20e4c8c1da74556a313afbcbb7241508eeef64d0b616ce632687cc8464b"
+        },
+        {
+          "path": "skills/task-timing/SKILL.md",
+          "kind": "skill",
+          "sizeBytes": 7463,
+          "sha256": "fc33d975c85124cb0a12d554cd6fc5bab832ef2731d9e9f51edebeb60baef446"
+        }
+      ],
+      "trustLevel": "markdown_only",
+      "compatibility": "compatible",
+      "contentHash": "sha256:837c9934661104fd43bbadccc0d6704e8f8a8e5a469a0f931cf811a3218bc32f"
     },
     {
       "id": "paperclipai:bundled:software-development:product-engineering",

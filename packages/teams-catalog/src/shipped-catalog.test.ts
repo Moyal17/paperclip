@@ -9,6 +9,7 @@ import type { CatalogTeam } from "./types.js";
 const EXPECTED_BUNDLED_KEYS = [
   "paperclipai/bundled/company-defaults/core-exec-team",
   "paperclipai/bundled/product/product-design",
+  "paperclipai/bundled/software-development/dev-team",
   "paperclipai/bundled/software-development/product-engineering",
 ];
 
@@ -77,6 +78,29 @@ describe("shipped teams catalog", () => {
     expect(catalogManifest.schemaVersion).toBe(1);
     expect(catalogManifest.packageName).toBe("@paperclipai/teams-catalog");
     expect(catalogTeams.length).toBe(EXPECTED_BUNDLED_KEYS.length + EXPECTED_OPTIONAL_KEYS.length);
+  });
+
+  it("ships the dev-team gate squad as the sole defaultInstall team", () => {
+    const defaults = catalogTeams.filter((team) => team.defaultInstall).map((team) => team.slug);
+    expect(defaults).toEqual(["dev-team"]);
+
+    const devTeam = catalogTeams.find((team) => team.slug === "dev-team");
+    expect(devTeam, "expected dev-team to ship in the bundled catalog").toBeDefined();
+    if (!devTeam) return;
+    expect(devTeam.rootAgentSlugs).toEqual(["cto"]);
+    expect(devTeam.agentSlugs).toEqual([
+      "architect",
+      "code-reviewer",
+      "cto",
+      "implementor-1",
+      "implementor-2",
+      "wiring-expert",
+    ]);
+    expect(devTeam.counts.agents).toBe(6);
+    expect(devTeam.counts.localSkills).toBe(7);
+    // All gate-team skills resolve in-package (no external sources / scripts).
+    expect(devTeam.requiredSkills.every((skill) => skill.type === "local" && skill.resolved)).toBe(true);
+    expect(devTeam.trustLevel).toBe("markdown_only");
   });
 
   it("resolves shipped teams by id, key, and unique slug", () => {
