@@ -715,6 +715,13 @@
       "when": 1780534800000,
       "tag": "0101_issue_pr_url",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1780535000000,
+      "tag": "0102_platform_guard_config",
+      "breakpoints": true
     }
   ]
 }
