@@ -51,6 +51,46 @@ echo "▶ company=$COMPANY_ID"
 echo ""
 
 # ---------------------------------------------------------------------------
+# 0. Clear budget pauses (kill switch). Pilots burn past the per-agent /
+#    per-company hard-stop token caps (esp. cold --resume replays), which
+#    pauses the company and cancels every agent wake with "budget pause".
+#    A plain /resume clears the AGENT flag but not the company-level budget
+#    pause, so the company re-pauses on the next run. The only safe unpause
+#    for a budget pause is resolving each open incident with
+#    raise_budget_and_resume (raises the cap above observed + resumes scope).
+# ---------------------------------------------------------------------------
+echo "▶ Clearing budget pauses…"
+curl -fsS -X PATCH "$API_BASE/companies/$COMPANY_ID" \
+  -H 'Content-Type: application/json' -d '{"status":"active"}' > /dev/null 2>&1 || true
+
+OVERVIEW_JSON="$(curl -fsS "$API_BASE/companies/$COMPANY_ID/budgets/overview" 2>/dev/null || echo '{}')"
+INCIDENT_LINES="$(printf '%s' "$OVERVIEW_JSON" | node -e '
+  let d={}; try { d = JSON.parse(require("fs").readFileSync(0,"utf8")); } catch (e) {}
+  const incidents = Array.isArray(d.activeIncidents) ? d.activeIncidents : [];
+  // raise each cap well above observed so the hard-stop does not re-trip mid-pilot
+  for (const i of incidents) {
+    if (i.status !== "open") continue;
+    const observed = Number(i.amountObserved || 0);
+    const next = Math.max(observed * 4, observed + 100000000, 100000000);
+    process.stdout.write(`${i.id} ${Math.floor(next)} ${i.scopeName || i.scopeType}\n`);
+  }
+')"
+
+if [[ -z "$INCIDENT_LINES" ]]; then
+  echo "  no open budget incidents"
+else
+  printf '%s\n' "$INCIDENT_LINES" | while IFS=' ' read -r INC_ID INC_AMT INC_NAME; do
+    [[ -z "$INC_ID" ]] && continue
+    RES="$(curl -fsS -X POST "$API_BASE/companies/$COMPANY_ID/budget-incidents/$INC_ID/resolve" \
+      -H 'Content-Type: application/json' \
+      -d "{\"action\":\"raise_budget_and_resume\",\"amount\":$INC_AMT}" 2>/dev/null || echo '{}')"
+    ST="$(printf '%s' "$RES" | node -e 'try{const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(d.status||"?");}catch(e){process.stdout.write("?");}')"
+    echo "  resolved $INC_NAME incident -> $ST (cap raised to $INC_AMT)"
+  done
+fi
+echo ""
+
+# ---------------------------------------------------------------------------
 # 1. Find all root issues that are plans
 # ---------------------------------------------------------------------------
 echo "▶ Fetching all issues for company…"
