@@ -35,8 +35,16 @@ are editable only in draft; children don't exist yet; the gate loop hasn't start
 Removed the 12-line block (comment + if-guard + wake call) from `POST /plans`.
 
 The import of `queueIssueAssignmentWakeup` was **kept** — it is still legitimately
-used at `POST /plans/:id/activate` (line 197, wakes child assignees after
-`plans.activate()` materializes the tier-1 children).
+used at `POST /plans/:id/activate` (child assignees ~line 182, architect gate W5a
+~line 198) after `plans.activate()` materializes the tier-1 children.
+
+**Why this was the only draft-wake door:** the deleted block hardcoded
+`status:"todo"` in the wake payload, but `createPlan` persists the plan issue with
+`status:"backlog"` (services/plans.ts:216). `queueIssueAssignmentWakeup`
+short-circuits on `status==="backlog"`, so the hardcode was specifically falsifying
+the status to defeat that guard. Every other wake site passes the issue's *real*
+status, so a draft (always `backlog`) is auto-suppressed everywhere else — the bug
+cannot re-enter by another path.
 
 ## Wake lifecycle after fix
 

@@ -4,6 +4,12 @@
  * to burn tokens on every plan creation, before the operator activated the plan.
  *
  * Wake legitimately fires at POST /plans/:id/activate (existing path, unchanged).
+ *
+ * SCOPE: this is a route-body unit guard. The service layer (planService) and
+ * authz are mocked, so it proves the POST /plans handler enqueues no wake — not
+ * that the service layer is wake-free. The mock of issue-assignment-wakeup.js
+ * rewrites the live ESM binding the route imports, so re-adding the wake call to
+ * the handler WOULD fail these assertions (verified non-tautological).
  */
 
 import express from "express";
