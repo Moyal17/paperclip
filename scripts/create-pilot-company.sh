@@ -89,17 +89,72 @@ if [[ "${AGENT_COUNT:-0}" -lt "$EXPECTED_AGENTS" ]]; then
 fi
 echo "✓ $AGENT_COUNT agents present (CTO id=$CTO_ID)"
 
+# ---------------------------------------------------------------------------
+# 3. Create a project with git_worktree isolation policy so implementor runs
+#    land in .paperclip/worktrees/<branch>/ — a checkout the dev server does
+#    NOT watch (tsx watch runs from server/ and only sees server/src/).
+#    Without this, implementors edit the main watched tree, trigger a hot-
+#    reload, their process detaches (process_detached), and the run is lost.
+# ---------------------------------------------------------------------------
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+echo "▶ Creating pilot project with git_worktree isolation (repo=$REPO_ROOT)…"
+
+# Check if company already has a project (idempotent on re-run).
+EXISTING_PROJECTS="$(curl -fsS "$API_BASE/companies/$COMPANY_ID/projects" 2>/dev/null || echo '[]')"
+PROJECT_ID="$(printf '%s' "$EXISTING_PROJECTS" | node -e '
+  try {
+    const p = JSON.parse(require("fs").readFileSync(0, "utf8"));
+    const list = Array.isArray(p) ? p : (p.projects ?? []);
+    process.stdout.write(list[0]?.id ?? "");
+  } catch (e) { process.stdout.write(""); }
+')"
+
+if [[ -n "$PROJECT_ID" ]]; then
+  echo "  project already exists: $PROJECT_ID (reusing)"
+else
+  PROJECT_JSON="$(curl -fsS -X POST "$API_BASE/companies/$COMPANY_ID/projects" \
+    -H 'Content-Type: application/json' \
+    -d "$(node -e '
+      const [repoRoot] = process.argv.slice(1);
+      process.stdout.write(JSON.stringify({
+        name: "Pilot",
+        executionWorkspacePolicy: {
+          enabled: true,
+          defaultMode: "isolated_workspace",
+          workspaceStrategy: { type: "git_worktree" },
+        },
+        workspace: {
+          sourceType: "local_path",
+          cwd: repoRoot,
+          isPrimary: true,
+        },
+      }));
+    ' "$REPO_ROOT")" 2>/dev/null || echo '{}')"
+  PROJECT_ID="$(printf '%s' "$PROJECT_JSON" | node -e '
+    try {
+      const d = JSON.parse(require("fs").readFileSync(0, "utf8"));
+      process.stdout.write(d.id ?? d.project?.id ?? "");
+    } catch (e) { process.stdout.write(""); }
+  ')"
+  if [[ -n "$PROJECT_ID" ]]; then
+    echo "  project created: $PROJECT_ID"
+  else
+    echo "  warning: could not create pilot project (agents will use scratch dir)" >&2
+  fi
+fi
+
 if [[ "$WITH_PILOT" -eq 0 ]]; then
   cat <<EOF
 
 Company is gate-ready.
   companyId = $COMPANY_ID
   ctoId     = $CTO_ID
+  projectId = ${PROJECT_ID:-(none)}
 
 Kick off a pilot:
   scripts/create-pilot-company.sh "$NAME" --with-pilot "<title>" "<overview>"
 or by hand:
-  POST $API_BASE/plans  {companyId,title,overview,gateProfile:"$GATE_PROFILE",assigneeAgentId:"$CTO_ID"}
+  POST $API_BASE/plans  {companyId,projectId:"${PROJECT_ID:-null}",title,overview,gateProfile:"$GATE_PROFILE",assigneeAgentId:"$CTO_ID"}
   POST $API_BASE/plans/<planIssueId>/activate
 EOF
   exit 0
@@ -114,9 +169,11 @@ echo "▶ Creating pilot plan (gateProfile=$GATE_PROFILE) assigned to CTO …"
 PLAN_JSON="$(curl -fsS -X POST "$API_BASE/plans" \
   -H 'Content-Type: application/json' \
   -d "$(node -e '
-    const [companyId, title, overview, gateProfile, assigneeAgentId] = process.argv.slice(1);
-    process.stdout.write(JSON.stringify({ companyId, title, overview: overview || null, gateProfile, assigneeAgentId }));
-  ' "$COMPANY_ID" "$PILOT_TITLE" "$PILOT_OVERVIEW" "$GATE_PROFILE" "$CTO_ID")")"
+    const [companyId, title, overview, gateProfile, assigneeAgentId, projectId] = process.argv.slice(1);
+    const body = { companyId, title, overview: overview || null, gateProfile, assigneeAgentId };
+    if (projectId) body.projectId = projectId;
+    process.stdout.write(JSON.stringify(body));
+  ' "$COMPANY_ID" "$PILOT_TITLE" "$PILOT_OVERVIEW" "$GATE_PROFILE" "$CTO_ID" "${PROJECT_ID:-}")")"
 
 PLAN_ID="$(printf '%s' "$PLAN_JSON" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(d.issue.id)')"
 echo "✓ plan created: issueId=$PLAN_ID"

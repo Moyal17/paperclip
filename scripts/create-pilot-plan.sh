@@ -82,6 +82,26 @@ if [[ -z "$ASSIGNEE_ID" ]]; then
   fi
 fi
 
+# Resolve the company's pilot project so child issues inherit the git_worktree
+# isolation policy. Without projectId, issues have no project → no policy →
+# agents use the main watched tree → process_detached on hot-reload (A4/G fix).
+PROJECT_ID="${PROJECT_ID:-}"
+if [[ -z "$PROJECT_ID" ]]; then
+  PROJECTS_JSON="$(curl -fsS "$API_BASE/companies/$COMPANY_ID/projects" 2>/dev/null || echo '[]')"
+  PROJECT_ID="$(printf '%s' "$PROJECTS_JSON" | node -e '
+    try {
+      const p = JSON.parse(require("fs").readFileSync(0, "utf8"));
+      const list = Array.isArray(p) ? p : (p.projects ?? []);
+      process.stdout.write(list[0]?.id ?? "");
+    } catch (e) { process.stdout.write(""); }
+  ')"
+fi
+if [[ -n "$PROJECT_ID" ]]; then
+  echo "  projectId=$PROJECT_ID (worktree isolation active)"
+else
+  echo "  warning: no project found — agents will use scratch dir, not a worktree" >&2
+fi
+
 echo "▶ API_BASE=$API_BASE"
 echo "▶ company=$COMPANY_ID  profile=$GATE_PROFILE  assignee=$ASSIGNEE_ID"
 echo "▶ Creating DRAFT plan (with tier-1 ticket): $TITLE"
@@ -92,8 +112,8 @@ echo "▶ Creating DRAFT plan (with tier-1 ticket): $TITLE"
 PLAN_JSON="$(curl -fsS -X POST "$API_BASE/plans" \
   -H 'Content-Type: application/json' \
   -d "$(node -e '
-    const [companyId, title, overview, gateProfile, assigneeAgentId, childTitle, childDesc] = process.argv.slice(1);
-    process.stdout.write(JSON.stringify({
+    const [companyId, title, overview, gateProfile, assigneeAgentId, childTitle, childDesc, projectId] = process.argv.slice(1);
+    const body = {
       companyId, title, overview: overview || null, gateProfile, assigneeAgentId,
       tiers: [
         {
@@ -106,8 +126,10 @@ PLAN_JSON="$(curl -fsS -X POST "$API_BASE/plans" \
           childIssueIds: [],
         },
       ],
-    }));
-  ' "$COMPANY_ID" "$TITLE" "$OVERVIEW" "$GATE_PROFILE" "$ASSIGNEE_ID" "$CHILD_TITLE" "$CHILD_DESC")")"
+    };
+    if (projectId) body.projectId = projectId;
+    process.stdout.write(JSON.stringify(body));
+  ' "$COMPANY_ID" "$TITLE" "$OVERVIEW" "$GATE_PROFILE" "$ASSIGNEE_ID" "$CHILD_TITLE" "$CHILD_DESC" "${PROJECT_ID:-}")")"
 
 PLAN_ID="$(printf '%s' "$PLAN_JSON" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(d.issue.id)')"
 EFFECTIVE="$(printf '%s' "$PLAN_JSON" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write(String(d.planDetails && d.planDetails.gateProfile || ""))')"
