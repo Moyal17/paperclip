@@ -129,18 +129,24 @@ else
           isPrimary: true,
         },
       }));
-    ' "$REPO_ROOT")" 2>/dev/null || echo '{}')"
+    ' "$REPO_ROOT")")" || {
+      echo "✗ pilot project creation request failed (POST /projects rejected by the server)." >&2
+      echo "  Refusing to continue: without git_worktree isolation, implementor runs edit the" >&2
+      echo "  watched tree, hot-reload detaches the process (process_detached), and the run is lost." >&2
+      exit 1
+    }
   PROJECT_ID="$(printf '%s' "$PROJECT_JSON" | node -e '
     try {
       const d = JSON.parse(require("fs").readFileSync(0, "utf8"));
       process.stdout.write(d.id ?? d.project?.id ?? "");
     } catch (e) { process.stdout.write(""); }
   ')"
-  if [[ -n "$PROJECT_ID" ]]; then
-    echo "  project created: $PROJECT_ID"
-  else
-    echo "  warning: could not create pilot project (agents will use scratch dir)" >&2
+  if [[ -z "$PROJECT_ID" ]]; then
+    echo "✗ pilot project creation returned no id — worktree isolation would be silently absent." >&2
+    echo "  response: $PROJECT_JSON" >&2
+    exit 1
   fi
+  echo "  project created: $PROJECT_ID"
 fi
 
 if [[ "$WITH_PILOT" -eq 0 ]]; then

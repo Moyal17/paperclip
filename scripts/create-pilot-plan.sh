@@ -87,7 +87,11 @@ fi
 # agents use the main watched tree → process_detached on hot-reload (A4/G fix).
 PROJECT_ID="${PROJECT_ID:-}"
 if [[ -z "$PROJECT_ID" ]]; then
-  PROJECTS_JSON="$(curl -fsS "$API_BASE/companies/$COMPANY_ID/projects" 2>/dev/null || echo '[]')"
+  PROJECTS_JSON="$(curl -fsS "$API_BASE/companies/$COMPANY_ID/projects")" || {
+    echo "✗ could not list projects for company $COMPANY_ID (server unreachable or rejected the request)." >&2
+    echo "  Refusing to create a plan blind to worktree isolation — fix the server, then retry." >&2
+    exit 1
+  }
   PROJECT_ID="$(printf '%s' "$PROJECTS_JSON" | node -e '
     try {
       const p = JSON.parse(require("fs").readFileSync(0, "utf8"));
@@ -99,7 +103,8 @@ fi
 if [[ -n "$PROJECT_ID" ]]; then
   echo "  projectId=$PROJECT_ID (worktree isolation active)"
 else
-  echo "  warning: no project found — agents will use scratch dir, not a worktree" >&2
+  echo "  warning: company has no project — agents will use scratch dir, not a worktree." >&2
+  echo "  Run create-pilot-company.sh first; it provisions the git_worktree project." >&2
 fi
 
 echo "▶ API_BASE=$API_BASE"
