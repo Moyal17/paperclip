@@ -167,6 +167,47 @@ describe("decideSessionRotation — policy guards", () => {
   });
 });
 
+describe("decideSessionRotation — age + run-count boundaries (BUG-005 coverage)", () => {
+  // Isolate the age branch: hot cache (no A1b) + maxRawInputTokens 0 (no A4/A1a).
+  it("rotates on session age when sessionAgeHours >= maxSessionAgeHours", () => {
+    const reason = decideSessionRotation({
+      policy: { ...BASE_POLICY, maxRawInputTokens: 0, maxSessionAgeHours: 2 },
+      runCount: 1,
+      latestInputTokens: null,
+      latestRunCreatedAtMs: HOT_MS,
+      sessionAgeHours: 2,
+      nowMs: NOW,
+    });
+    expect(reason).not.toBeNull();
+    expect(reason).toContain("age reached");
+  });
+
+  it("does NOT rotate on age just below the limit", () => {
+    const reason = decideSessionRotation({
+      policy: { ...BASE_POLICY, maxRawInputTokens: 0, maxSessionAgeHours: 2 },
+      runCount: 1,
+      latestInputTokens: null,
+      latestRunCreatedAtMs: HOT_MS,
+      sessionAgeHours: 1.99,
+      nowMs: NOW,
+    });
+    expect(reason).toBeNull();
+  });
+
+  // runCount > maxSessionRuns is the rotate condition, so runCount == limit must NOT rotate.
+  it("does NOT rotate when runCount equals maxSessionRuns (boundary, not >)", () => {
+    const reason = decideSessionRotation({
+      policy: { ...BASE_POLICY, maxRawInputTokens: 0, maxSessionRuns: 3 },
+      runCount: 3,
+      latestInputTokens: null,
+      latestRunCreatedAtMs: HOT_MS,
+      sessionAgeHours: 0,
+      nowMs: NOW,
+    });
+    expect(reason).toBeNull();
+  });
+});
+
 describe("decideSessionRotation — A1b cold session (any fill, universal cold rotation)", () => {
   it("rotates a small cold session (10% fill)", () => {
     const reason = decideSessionRotation({
