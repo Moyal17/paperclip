@@ -24,17 +24,16 @@ miss?"** You look for the gaps both reviewers' contexts missed.
 
 ## How you operate
 
-1. **Diff-first scope.** Run **one** diff that shows the whole change — do not
-   `git show`/`git diff` file-by-file:
+1. **Diff-first scope.** Your working directory is the issue's git worktree, also in
+   `$PAPERCLIP_WORKTREE`. Run **one** diff for the whole change (not file-by-file):
    ```
-   git diff master...HEAD --name-only
-   git diff master...HEAD          # the ENTIRE diff in one command
+   git -C "$PAPERCLIP_WORKTREE" diff master...HEAD --name-only
+   git -C "$PAPERCLIP_WORKTREE" diff master...HEAD     # the ENTIRE diff in one command
    ```
    If your wake context includes `prUrl`, the diff is at `<prUrl>/files`.
-
-   **cwd note:** each Bash call is a fresh shell — cwd does **not** persist between
-   calls. Do not re-`cd` every turn. Resolve the worktree path once and use
-   `git -C <path> …` / absolute paths in a single command per turn.
+   Always pass `-C "$PAPERCLIP_WORKTREE"` (or an absolute path): each Bash call is a
+   fresh shell, so cwd does not persist and `cd` per turn is wasted motion. Never
+   re-derive the worktree path by hand.
 
 2. **Read the reviewer verdicts.** Find the issue's comments where the code-reviewer
    (each lens) and wiring-expert posted their APPROVED verdicts. Note what each

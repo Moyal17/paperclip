@@ -957,8 +957,25 @@ describe("applyPaperclipWorkspaceEnv", () => {
       PAPERCLIP_WORKSPACE_REPO_REF: "main",
       PAPERCLIP_WORKSPACE_BRANCH: "feature/test",
       PAPERCLIP_WORKSPACE_WORKTREE_PATH: "/tmp/worktree",
+      PAPERCLIP_WORKTREE: "/tmp/worktree",
       AGENT_HOME: "/tmp/agent-home",
     });
+  });
+
+  it("sets PAPERCLIP_WORKTREE to the worktree path when present", () => {
+    const env = applyPaperclipWorkspaceEnv(
+      {},
+      { workspaceCwd: "/tmp/clone", workspaceWorktreePath: "/tmp/worktree" },
+    );
+    expect(env.PAPERCLIP_WORKTREE).toBe("/tmp/worktree");
+  });
+
+  it("falls back PAPERCLIP_WORKTREE to the cwd when no worktree path", () => {
+    const env = applyPaperclipWorkspaceEnv(
+      {},
+      { workspaceCwd: "/tmp/clone" },
+    );
+    expect(env.PAPERCLIP_WORKTREE).toBe("/tmp/clone");
   });
 
   it("skips empty workspace env values", () => {
@@ -1102,6 +1119,7 @@ describe("refreshPaperclipWorkspaceEnvForExecution", () => {
     const env: Record<string, string> = {
       PAPERCLIP_WORKSPACE_CWD: "/remote/workspace",
       PAPERCLIP_WORKSPACE_WORKTREE_PATH: "/host/worktree",
+      PAPERCLIP_WORKTREE: "/host/worktree",
       PAPERCLIP_WORKSPACES_JSON: JSON.stringify([
         { workspaceId: "workspace-1", cwd: "/remote/workspace" },
         { workspaceId: "workspace-2", cwd: "/tmp/other" },
@@ -1139,6 +1157,9 @@ describe("refreshPaperclipWorkspaceEnvForExecution", () => {
     });
     expect(env.PAPERCLIP_WORKSPACE_CWD).toBe("/remote/workspace/.paperclip-runtime/runs/run-1/workspace");
     expect(env.PAPERCLIP_WORKSPACE_WORKTREE_PATH).toBeUndefined();
+    // PAPERCLIP_WORKTREE: host worktree stripped, rewritten to the remote runtime cwd
+    // (no local-path leak into the remote shell).
+    expect(env.PAPERCLIP_WORKTREE).toBe("/remote/workspace/.paperclip-runtime/runs/run-1/workspace");
     expect(env.QA_PROJECT_WORKSPACE_CWD).toBe("/remote/workspace/.paperclip-runtime/runs/run-1/workspace");
     expect(JSON.parse(env.PAPERCLIP_WORKSPACES_JSON ?? "[]")).toEqual([
       {

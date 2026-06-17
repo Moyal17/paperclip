@@ -965,6 +965,12 @@ export function applyPaperclipWorkspaceEnv(
     agentHome?: string | null;
   },
 ): Record<string, string> {
+  // PAPERCLIP_WORKTREE: one always-correct path to the code under review. The
+  // worktree path when known (git_worktree strategy), else the resolved cwd —
+  // which for a gate reviewer bound via executionWorkspaceId IS the worktree.
+  // Gate AGENTS.md uses `git -C "$PAPERCLIP_WORKTREE"` so the agent never re-derives
+  // the path or fights the per-call fresh shell (cwd does not persist).
+  const worktreeAlias = input.workspaceWorktreePath || input.workspaceCwd;
   const mappings = [
     ["PAPERCLIP_WORKSPACE_CWD", input.workspaceCwd],
     ["PAPERCLIP_WORKSPACE_SOURCE", input.workspaceSource],
@@ -974,6 +980,7 @@ export function applyPaperclipWorkspaceEnv(
     ["PAPERCLIP_WORKSPACE_REPO_REF", input.workspaceRepoRef],
     ["PAPERCLIP_WORKSPACE_BRANCH", input.workspaceBranch],
     ["PAPERCLIP_WORKSPACE_WORKTREE_PATH", input.workspaceWorktreePath],
+    ["PAPERCLIP_WORKTREE", worktreeAlias],
     ["AGENT_HOME", input.agentHome],
   ] as const;
 
@@ -1126,6 +1133,7 @@ export function refreshPaperclipWorkspaceEnvForExecution(input: {
 
   delete input.env.PAPERCLIP_WORKSPACE_CWD;
   delete input.env.PAPERCLIP_WORKSPACE_WORKTREE_PATH;
+  delete input.env.PAPERCLIP_WORKTREE;
   delete input.env.PAPERCLIP_WORKSPACES_JSON;
 
   applyPaperclipWorkspaceEnv(input.env, {

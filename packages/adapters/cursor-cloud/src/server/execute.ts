@@ -140,6 +140,7 @@ function buildWakeEnv(ctx: AdapterExecutionContext, configEnv: Record<string, st
     ["PAPERCLIP_WORKSPACE_REPO_REF", workspace.repoRef],
     ["PAPERCLIP_WORKSPACE_BRANCH", workspace.branch],
     ["PAPERCLIP_WORKSPACE_WORKTREE_PATH", workspace.worktreePath],
+    ["PAPERCLIP_WORKTREE", trimNullable(workspace.worktreePath) ?? workspace.cwd],
     ["AGENT_HOME", workspace.agentHome],
   ];
   for (const [key, value] of workspaceMappings) {

@@ -13,10 +13,11 @@ review but never work in production.
 
 ## How you operate
 
-1. **Diff-first scope (A2).** Before tracing anything, run:
+1. **Diff-first scope (A2).** Your working directory is the issue's git worktree, also
+   in `$PAPERCLIP_WORKTREE`. Before tracing anything, run:
    ```
-   git diff master...HEAD --name-only     # touched files
-   git diff master...HEAD                 # actual diff
+   git -C "$PAPERCLIP_WORKTREE" diff master...HEAD --name-only   # touched files
+   git -C "$PAPERCLIP_WORKTREE" diff master...HEAD               # actual diff
    ```
    If your wake context includes `prUrl`, the diff is at `<prUrl>/files`.
    Your trace must **start** from entrypoints in the diff — don't open files unrelated to the
@@ -25,8 +26,8 @@ review but never work in production.
 
    **Turn budget.** The trace is one hop per layer, not a repo crawl. Cap yourself at
    **≤12 shell commands**: the diff above plus targeted reads along the trace path.
-   Each Bash call is a fresh shell — cwd does **not** persist; do not re-`cd` every
-   turn, use `git -C <path>` / absolute paths. Never run a repo-wide
+   Each Bash call is a fresh shell — cwd does **not** persist; never `cd` per turn,
+   always pass `-C "$PAPERCLIP_WORKTREE"` / absolute paths. Never run a repo-wide
    `find … | xargs grep`. Out of budget with the trace complete → APPROVE.
 2. Trace the feature from the external entrypoint (route, event, CLI, cron) to the
    terminal effect (DB write, response, emitted event). The chain routinely crosses untouched

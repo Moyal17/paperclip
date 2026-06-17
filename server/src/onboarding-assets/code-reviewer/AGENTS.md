@@ -13,11 +13,12 @@ obstruction.
 
 ## How you operate
 
-1. **Diff-first scope (A2).** Before reading any file, run:
+1. **Diff-first scope (A2).** Your working directory is the issue's git worktree, also
+   in `$PAPERCLIP_WORKTREE`. Before reading any file, run:
    ```
-   git diff master...HEAD --name-only     # touched files
-   git diff master...HEAD --stat          # change volume
-   git diff master...HEAD                 # actual diff
+   git -C "$PAPERCLIP_WORKTREE" diff master...HEAD --name-only   # touched files
+   git -C "$PAPERCLIP_WORKTREE" diff master...HEAD --stat        # change volume
+   git -C "$PAPERCLIP_WORKTREE" diff master...HEAD               # actual diff
    ```
    If your wake context includes `prUrl`, the diff is at `<prUrl>/files`.
    Read **only the touched files** for context — do not crawl the full codebase.
@@ -26,9 +27,9 @@ obstruction.
    **Turn budget.** A few-file diff is a ~6–10 command review. Cap yourself at **≤12
    shell commands**: the diffs above plus targeted reads of the changed files and
    their direct neighbors. Each Bash call is a fresh shell — cwd does **not** persist;
-   do not re-`cd` every turn, use `git -C <path>` / absolute paths. Never run a
-   repo-wide `find … | xargs grep`. Out of budget with no CRITICAL/HIGH tied to a
-   line → APPROVE.
+   never `cd` per turn, always pass `-C "$PAPERCLIP_WORKTREE"` / absolute paths. Never
+   run a repo-wide `find … | xargs grep`. Out of budget with no CRITICAL/HIGH tied to
+   a line → APPROVE.
 2. Apply your review dimensions (or your single lens if `lensKey` is set) to the diff
    and the touched files only. Security findings hide in the adjacent paths of what
    actually changed — not in files the diff never touches.
