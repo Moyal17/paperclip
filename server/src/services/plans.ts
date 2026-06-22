@@ -574,6 +574,24 @@ export function planService(db: Db) {
       return { planDetails: updated, createdApprovalIds, cancelledApprovalIds };
     },
 
+    setEstimate: async (
+      issueId: string,
+      input: { estimatedCompletionAt?: Date | null; estimatorAgentId?: string | null },
+    ) => {
+      const [updated] = await db
+        .update(planDetails)
+        .set({
+          estimatedCompletionAt: input.estimatedCompletionAt,
+          estimatorAgentId: input.estimatorAgentId,
+          // Clear the one-shot guard so a re-set ETA can trigger a new overrun wake.
+          etaOverrunNotifiedAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(planDetails.issueId, issueId))
+        .returning();
+      return updated;
+    },
+
     setBudgetCaps: async (
       issueId: string,
       caps: { budgetCapCents?: number | null; budgetCapTokens?: number | null },

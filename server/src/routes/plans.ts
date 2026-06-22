@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Db } from "@paperclipai/db";
 import { planService, type PlanTier } from "../services/plans.js";
 import { agentService, heartbeatService, issueService, logActivity } from "../services/index.js";
+import { diagnosePlanHealth } from "../services/plan-supervision.js";
 import { queueIssueAssignmentWakeup } from "../services/issue-assignment-wakeup.js";
 import { cancelIssueSubtree } from "../services/issue-subtree-cancel.js";
 import { PLAN_APPROVAL_WAKE_REASON, buildGateWorkspaceContext } from "../services/plan-gates.js";
@@ -55,6 +56,15 @@ const setBudgetCapsSchema = z
 const setGateProfileSchema = z.object({
   gateProfile: z.enum(["none", "solo", "light", "dev_team"]),
 });
+
+const setEstimateSchema = z
+  .object({
+    estimatedCompletionAt: z.string().datetime().nullish(),
+    estimatorAgentId: z.string().uuid().nullish(),
+  })
+  .refine((v) => v.estimatedCompletionAt !== undefined || v.estimatorAgentId !== undefined, {
+    message: "Provide estimatedCompletionAt and/or estimatorAgentId",
+  });
 
 export function planRoutes(
   db: Db,
@@ -349,6 +359,62 @@ export function planRoutes(
       ...cancelResult,
       message: nothingRunning ? "Plan stopped — nothing was running" : "Plan stopped",
     });
+  });
+
+  // Set or clear the CTO-managed ETA for a plan. Clears the overrun-notified
+  // guard so resetting ETA re-enables the one-shot overrun wake.
+  router.patch("/plans/:issueId/estimate", async (req, res) => {
+    const parsed = setEstimateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid estimate payload", details: parsed.error.flatten() });
+      return;
+    }
+    const existing = await issues.getById(req.params.issueId as string);
+    if (!existing) {
+      res.status(404).json({ error: "Plan not found" });
+      return;
+    }
+    assertCompanyAccess(req, existing.companyId);
+    const actor = getActorInfo(req);
+
+    const rawEta = parsed.data.estimatedCompletionAt;
+    const updated = await plans.setEstimate(req.params.issueId as string, {
+      estimatedCompletionAt: rawEta != null ? new Date(rawEta) : rawEta,
+      estimatorAgentId: parsed.data.estimatorAgentId,
+    });
+    await logActivity(db, {
+      companyId: existing.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "plan.estimate_set",
+      entityType: "issue",
+      entityId: existing.id,
+      details: {
+        estimatedCompletionAt: parsed.data.estimatedCompletionAt ?? null,
+        estimatorAgentId: parsed.data.estimatorAgentId ?? null,
+      },
+    });
+    publishLiveEvent({
+      companyId: existing.companyId,
+      type: "plan.updated",
+      payload: { planIssueId: existing.id },
+    });
+    res.json({ planDetails: updated });
+  });
+
+  // Return the current health diagnosis for all agents assigned to active
+  // subtree issues of a plan. Used by the CTO on an overrun wake.
+  router.get("/plans/:issueId/supervision/health", async (req, res) => {
+    const existing = await issues.getById(req.params.issueId as string);
+    if (!existing) {
+      res.status(404).json({ error: "Plan not found" });
+      return;
+    }
+    assertCompanyAccess(req, existing.companyId);
+    const health = await diagnosePlanHealth(req.params.issueId as string, db);
+    res.json({ health });
   });
 
   // Delete a plan and its entire subtree. Cancels active work first so no
