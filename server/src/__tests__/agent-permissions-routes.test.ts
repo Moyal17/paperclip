@@ -108,6 +108,7 @@ const mockEnvironmentService = vi.hoisted(() => ({
 
 const mockInstanceSettingsService = vi.hoisted(() => ({
   getGeneral: vi.fn(),
+  getGuards: vi.fn(async () => ({ enabled: false, budget: { agentMonthlyTokens: 0 } })),
 }));
 
 function registerModuleMocks() {

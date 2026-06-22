@@ -40,6 +40,7 @@ const mockInstanceSettingsService = vi.hoisted(() => ({
     },
   })),
   listCompanyIds: vi.fn(async () => ["company-1"]),
+  getExperimental: vi.fn(async () => ({ strictBoardTransitions: false })),
 }));
 const mockRoutineService = vi.hoisted(() => ({
   syncRunStatusForIssue: vi.fn(async () => undefined),

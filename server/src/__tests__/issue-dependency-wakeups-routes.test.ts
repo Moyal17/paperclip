@@ -16,6 +16,14 @@ const mockIssueService = vi.hoisted(() => ({
   findMentionedAgents: vi.fn(async () => []),
 }));
 
+vi.mock("../services/instance-settings.js", () => ({
+  instanceSettingsService: () => ({
+    get: vi.fn(),
+    listCompanyIds: vi.fn(),
+    getExperimental: vi.fn(async () => ({ strictBoardTransitions: false })),
+  }),
+}));
+
 vi.mock("../services/index.js", () => ({
   companyService: () => ({
     getById: vi.fn(async () => ({ id: "company-1", attachmentMaxBytes: 10 * 1024 * 1024 })),

@@ -22,7 +22,9 @@ const mockAccessService = vi.hoisted(() => ({
 const mockApprovalService = vi.hoisted(() => ({
   create: vi.fn(),
 }));
-const mockBudgetService = vi.hoisted(() => ({}));
+const mockBudgetService = vi.hoisted(() => ({
+  upsertPolicy: vi.fn(),
+}));
 const mockEnvironmentService = vi.hoisted(() => ({
   getById: vi.fn(),
 }));

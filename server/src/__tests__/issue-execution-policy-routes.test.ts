@@ -427,7 +427,9 @@ describe("issue execution policy routes", () => {
 
     expect(res.status).toBe(200);
     expect(mockIssueThreadInteractionService.listForIssue).not.toHaveBeenCalled();
-    expect(mockIssueApprovalService.listApprovalsForIssue).not.toHaveBeenCalled();
+    // W5b consults approvals to find gate reviewers to wake on in_review; with no
+    // linked approvals it must dispatch no reviewer wake (board repair, no review path).
+    expect(mockHeartbeatService.wakeup).not.toHaveBeenCalled();
   });
 
   it("does not auto-start execution review when reviewers are added to an already in_review issue", async () => {

@@ -56,6 +56,7 @@ const mockApprovalService = vi.hoisted(() => ({
 
 const mockInstanceSettingsService = vi.hoisted(() => ({
   getGeneral: vi.fn(async () => ({ censorUsernameInLogs: false })),
+  getGuards: vi.fn(async () => ({ enabled: false, budget: { agentMonthlyTokens: 0 } })),
 }));
 
 const mockLogActivity = vi.hoisted(() => vi.fn());
