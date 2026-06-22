@@ -105,6 +105,8 @@ describeEmbeddedPostgres("POST /api/plans/:issueId/complete", () => {
       title: "Implement the complete endpoint",
       parentId: root.id,
     });
+    // Finished work: child terminal so the plan is completable.
+    await db.update(issues).set({ status: "done" }).where(eq(issues.id, child.id));
     await db.update(planDetails).set({ state: "active" }).where(eq(planDetails.issueId, root.id));
 
     const coder = await seedAgent(companyId, "Coder");
@@ -274,6 +276,26 @@ describeEmbeddedPostgres("POST /api/plans/:issueId/complete", () => {
     expect(res.status).toBe(200);
     expect(res.body.retrospectiveDocument.created).toBe(false);
     expect(res.body.retrospectiveDocument.document.body).toContain("Plan Retrospective");
+  });
+
+  it("returns 409 when the plan still has unfinished tasks", async () => {
+    const companyId = await seedCompany("RUN");
+    const { rootId, operatorId } = await seedRichPlan(companyId);
+    // Add a still-running child: completion must be blocked.
+    const running = await issuesSvc.create(companyId, {
+      title: "Still running task",
+      parentId: rootId,
+    });
+    await db.update(issues).set({ status: "in_progress" }).where(eq(issues.id, running.id));
+    asAgentOf(companyId, operatorId);
+
+    const res = await request(buildApp()).post(`/api/plans/${rootId}/complete`).send({});
+    expect(res.status).toBe(409);
+    expect(res.body.error).toContain("unfinished");
+
+    // The plan stays active and no retrospective was attached.
+    const stored = await docs.getIssueDocumentByKey(rootId, "plan-retrospective");
+    expect(stored).toBeNull();
   });
 
   it("omits soft-deleted comments from the retrospective", async () => {

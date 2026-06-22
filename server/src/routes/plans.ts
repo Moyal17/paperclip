@@ -389,6 +389,18 @@ export function planRoutes(
       return;
     }
 
+    // A plan is only completable once its work is finished — block if any subtree
+    // task is still active (not done/cancelled). Caller should let it finish or
+    // stop the plan (which cancels the subtree) first. This also guarantees the
+    // retrospective reflects final state, not an in-flight snapshot.
+    const unfinished = await plans.unfinishedSubtaskCount(planIssueId);
+    if (unfinished > 0) {
+      res.status(409).json({
+        error: `Plan has ${unfinished} unfinished task(s); let them finish or stop the plan first`,
+      });
+      return;
+    }
+
     const completedAt = new Date();
     const data = await retros.gather(planIssueId, completedAt);
     const body = renderRetrospectiveMarkdown(data);

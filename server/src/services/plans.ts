@@ -420,6 +420,26 @@ export function planService(db: Db) {
       return updated;
     },
 
+    // Count subtree issues (excluding the root) that are NOT in a terminal state
+    // (anything but 'done'/'cancelled'). Gates plan completion: a plan is only
+    // completable once its work is actually finished.
+    unfinishedSubtaskCount: async (rootIssueId: string): Promise<number> => {
+      const rows = await db.execute<{ n: number }>(sql`
+        WITH RECURSIVE tree AS (
+          SELECT id FROM issues WHERE id = ${rootIssueId}
+          UNION ALL
+          SELECT c.id FROM issues c INNER JOIN tree t ON c.parent_id = t.id
+        )
+        SELECT count(*)::int AS n
+        FROM issues
+        WHERE id IN (SELECT id FROM tree)
+          AND id <> ${rootIssueId}
+          AND status NOT IN ('done', 'cancelled')
+      `);
+      const list = (rows as unknown as { rows?: { n: number }[] }).rows ?? (rows as unknown as { n: number }[]);
+      return Number(list[0]?.n ?? 0);
+    },
+
     // All issue ids in a plan subtree (root + every descendant), ordered
     // deepest-first so leaves are deleted before their parents (issues.parentId
     // is a self-FK with no cascade).
