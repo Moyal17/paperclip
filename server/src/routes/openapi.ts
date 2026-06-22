@@ -4169,6 +4169,51 @@ for (const route of [
   });
 }
 
+for (const route of [
+  ["post", "/api/plans", "Create a plan for an issue"],
+  ["get", "/api/companies/{companyId}/plans", "List plans for a company"],
+  ["get", "/api/plans/{issueId}", "Get the plan for an issue"],
+  ["put", "/api/plans/{issueId}/tiers", "Replace plan tiers"],
+  ["patch", "/api/plans/{issueId}/budget", "Update plan budget"],
+  ["patch", "/api/plans/{issueId}/gate-profile", "Update plan gate profile"],
+  ["post", "/api/plans/{issueId}/activate", "Activate a plan"],
+  ["post", "/api/plans/{issueId}/stop", "Stop a running plan"],
+  ["delete", "/api/plans/{issueId}", "Delete a plan"],
+] as const) {
+  registerCurrentRoute({
+    method: route[0],
+    path: route[1],
+    tags: ["plans"],
+    summary: route[2],
+  });
+}
+
+for (const route of [
+  ["get", "/api/companies/{companyId}/budgets/live-meter", "Live budget meter for a company"],
+  ["post", "/api/companies/{companyId}/kill-switch", "Engage the company budget kill-switch"],
+  ["post", "/api/companies/{companyId}/kill-switch/release", "Release the company budget kill-switch"],
+  ["post", "/api/companies/{companyId}/reactivate", "Reactivate a paused company"],
+] as const) {
+  registerCurrentRoute({
+    method: route[0],
+    path: route[1],
+    tags: ["costs"],
+    summary: route[2],
+  });
+}
+
+for (const route of [
+  ["get", "/api/instance/settings/guards", "Get instance guard settings"],
+  ["patch", "/api/instance/settings/guards", "Update instance guard settings"],
+] as const) {
+  registerCurrentRoute({
+    method: route[0],
+    path: route[1],
+    tags: ["instance-settings"],
+    summary: route[2],
+  });
+}
+
 const cloudCompanyQuerySchema = z.object({
   companyId: z.string().min(1),
 });
