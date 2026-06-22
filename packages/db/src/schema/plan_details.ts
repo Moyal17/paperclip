@@ -27,6 +27,7 @@ export const planDetails = pgTable(
     estimatedCompletionAt: timestamp("estimated_completion_at", { withTimezone: true }),
     estimatorAgentId: uuid("estimator_agent_id").references(() => agents.id, { onDelete: "set null" }),
     etaOverrunNotifiedAt: timestamp("eta_overrun_notified_at", { withTimezone: true }),
+    lastMonitoredAt: timestamp("last_monitored_at", { withTimezone: true }),
     activatedAt: timestamp("activated_at", { withTimezone: true }),
     stoppedAt: timestamp("stopped_at", { withTimezone: true }),
     stopReason: text("stop_reason"),
