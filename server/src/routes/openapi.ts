@@ -4178,6 +4178,7 @@ for (const route of [
   ["patch", "/api/plans/{issueId}/gate-profile", "Update plan gate profile"],
   ["post", "/api/plans/{issueId}/activate", "Activate a plan"],
   ["post", "/api/plans/{issueId}/stop", "Stop a running plan"],
+  ["post", "/api/plans/{issueId}/complete", "Complete a plan and generate its retrospective"],
   ["delete", "/api/plans/{issueId}", "Delete a plan"],
 ] as const) {
   registerCurrentRoute({

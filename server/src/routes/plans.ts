@@ -3,6 +3,8 @@ import { z } from "zod";
 import type { Db } from "@paperclipai/db";
 import { planService, type PlanTier } from "../services/plans.js";
 import { agentService, heartbeatService, issueService, logActivity } from "../services/index.js";
+import { documentService } from "../services/documents.js";
+import { planRetrospectiveService, renderRetrospectiveMarkdown } from "../services/plan-retrospective.js";
 import { queueIssueAssignmentWakeup } from "../services/issue-assignment-wakeup.js";
 import { cancelIssueSubtree } from "../services/issue-subtree-cancel.js";
 import { PLAN_APPROVAL_WAKE_REASON, buildGateWorkspaceContext } from "../services/plan-gates.js";
@@ -56,6 +58,10 @@ const setGateProfileSchema = z.object({
   gateProfile: z.enum(["none", "solo", "light", "dev_team"]),
 });
 
+const completePlanSchema = z.object({
+  reason: z.string().optional(),
+});
+
 export function planRoutes(
   db: Db,
   opts: { pluginWorkerManager?: PluginWorkerManager } = {},
@@ -65,6 +71,8 @@ export function planRoutes(
   const issues = issueService(db);
   const agentsSvc = agentService(db);
   const heartbeat = heartbeatService(db, { pluginWorkerManager: opts.pluginWorkerManager });
+  const docs = documentService(db);
+  const retros = planRetrospectiveService(db);
 
   // Create a plan (manual authoring, or assign-to-agent so a CTO agent drafts it).
   router.post("/plans", async (req, res) => {
@@ -349,6 +357,78 @@ export function planRoutes(
       ...cancelResult,
       message: nothingRunning ? "Plan stopped — nothing was running" : "Plan stopped",
     });
+  });
+
+  // Complete a plan: generate an executive retrospective document (attached to
+  // the plan-root issue under key "plan-retrospective") then mark the plan
+  // completed. The document is written BEFORE the state flip so a document
+  // failure never leaves a completed plan without a retrospective.
+  router.post("/plans/:issueId/complete", async (req, res) => {
+    const planIssueId = req.params.issueId as string;
+    const parsed = completePlanSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+    const existing = await issues.getById(planIssueId);
+    if (!existing) {
+      res.status(404).json({ error: "Plan not found" });
+      return;
+    }
+    assertCompanyAccess(req, existing.companyId);
+    const actor = getActorInfo(req);
+
+    // Early 409 before any write if already completed.
+    const current = await plans.getPlan(planIssueId);
+    if (!current) {
+      res.status(404).json({ error: "Plan not found" });
+      return;
+    }
+    if (current.planDetails.state === "completed") {
+      res.status(409).json({ error: "Plan is already completed" });
+      return;
+    }
+
+    const completedAt = new Date();
+    const data = await retros.gather(planIssueId, completedAt);
+    const body = renderRetrospectiveMarkdown(data);
+
+    // Update an existing unlocked retrospective in place (pass its latest
+    // revision id); locked → spill to a new document key.
+    const existingDoc = await docs.getIssueDocumentByKey(planIssueId, "plan-retrospective");
+    const retrospectiveDocument = await docs.upsertIssueDocument({
+      issueId: planIssueId,
+      key: "plan-retrospective",
+      title: "Plan Retrospective",
+      format: "markdown",
+      body,
+      baseRevisionId: existingDoc?.latestRevisionId ?? undefined,
+      createdByAgentId: actor.agentId ?? null,
+      createdByUserId: actor.actorType === "user" ? actor.actorId : null,
+      lockedDocumentStrategy: "create_new_document",
+    });
+
+    const planDetails = await plans.markCompleted(planIssueId, { completedAt });
+
+    await logActivity(db, {
+      companyId: existing.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "plan.completed",
+      entityType: "issue",
+      entityId: planIssueId,
+      details: { retrospectiveDocumentId: retrospectiveDocument.document.id },
+    });
+
+    publishLiveEvent({
+      companyId: existing.companyId,
+      type: "plan.state.changed",
+      payload: { planIssueId, state: "completed" },
+    });
+
+    res.json({ planDetails, retrospectiveDocument });
   });
 
   // Delete a plan and its entire subtree. Cancels active work first so no

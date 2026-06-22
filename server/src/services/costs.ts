@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Db } from "@paperclipai/db";
 import { activityLog, agents, companies, costEvents, heartbeatRuns, issues, projects } from "@paperclipai/db";
@@ -299,6 +299,29 @@ export function costService(db: Db, budgetHooks: BudgetServiceHooks = {}) {
         .leftJoin(agents, eq(costEvents.agentId, agents.id))
         .where(and(...conditions))
         .groupBy(costEvents.agentId, agents.name, agents.status)
+        .orderBy(desc(sumAsNumber(costEvents.costCents)));
+    },
+
+    // Per-agent token + cost totals scoped to a set of issues (e.g. a plan
+    // subtree), broken down by model. Used by the plan retrospective. Returns []
+    // for an empty issue set. costEvents.issueId survives plan completion (it is
+    // only SET NULL on delete), so a completed plan's subtree still aggregates.
+    perAgentForIssues: async (companyId: string, issueIds: string[]) => {
+      if (issueIds.length === 0) return [];
+      return db
+        .select({
+          agentId: costEvents.agentId,
+          agentName: agents.name,
+          model: costEvents.model,
+          inputTokens: sumAsNumber(costEvents.inputTokens),
+          cachedInputTokens: sumAsNumber(costEvents.cachedInputTokens),
+          outputTokens: sumAsNumber(costEvents.outputTokens),
+          costCents: sumAsNumber(costEvents.costCents),
+        })
+        .from(costEvents)
+        .leftJoin(agents, eq(costEvents.agentId, agents.id))
+        .where(and(eq(costEvents.companyId, companyId), inArray(costEvents.issueId, issueIds)))
+        .groupBy(costEvents.agentId, agents.name, costEvents.model)
         .orderBy(desc(sumAsNumber(costEvents.costCents)));
     },
 

@@ -63,6 +63,17 @@ export function PlanDetailDrawer({ companyId }: PlanDetailDrawerProps) {
     onError: (e) => pushToast({ title: "Activation failed", body: errMsg(e), tone: "error" }),
   });
 
+  const complete = useMutation({
+    mutationFn: () => plansApi.complete(planId!),
+    onSuccess: () => {
+      pushToast({ title: "Plan completed", body: "Retrospective generated.", tone: "success" });
+      invalidate();
+      // Surface the freshly attached retrospective in the issue documents view.
+      if (planId) queryClient.invalidateQueries({ queryKey: queryKeys.issues.documents(planId) });
+    },
+    onError: (e) => pushToast({ title: "Completion failed", body: errMsg(e), tone: "error" }),
+  });
+
   const saveBudget = useMutation({
     mutationFn: () => {
       const trimmed = capDraft.trim();
@@ -183,6 +194,22 @@ export function PlanDetailDrawer({ companyId }: PlanDetailDrawerProps) {
                       Add at least one first-phase task before activating.
                     </p>
                   )}
+                </div>
+              )}
+
+              {(state === "active" || state === "stopped") && (
+                <div className="space-y-1.5">
+                  <Button
+                    className="w-full"
+                    variant="outline"
+                    onClick={() => complete.mutate()}
+                    disabled={complete.isPending}
+                  >
+                    {complete.isPending ? "Completing…" : "Complete plan"}
+                  </Button>
+                  <p className="text-[11px] text-muted-foreground">
+                    Marks the plan done and generates a retrospective summary.
+                  </p>
                 </div>
               )}
             </div>

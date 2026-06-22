@@ -26,6 +26,7 @@ export const planDetails = pgTable(
     budgetCapTokens: bigint("budget_cap_tokens", { mode: "number" }),
     activatedAt: timestamp("activated_at", { withTimezone: true }),
     stoppedAt: timestamp("stopped_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
     stopReason: text("stop_reason"),
     createdByUserId: text("created_by_user_id"),
     createdByAgentId: uuid("created_by_agent_id").references(() => agents.id, { onDelete: "set null" }),

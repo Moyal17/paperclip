@@ -22,6 +22,7 @@ export interface PlanDetails {
   gateProfile: "none" | "dev_team";
   activatedAt: string | null;
   stoppedAt: string | null;
+  completedAt: string | null;
   stopReason: string | null;
   createdByUserId: string | null;
   createdByAgentId: string | null;
@@ -55,6 +56,14 @@ export interface PlanStopResult {
   message: string;
 }
 
+export interface PlanCompleteResult {
+  planDetails: PlanDetails;
+  retrospectiveDocument: {
+    document: { id: string; key: string; title: string | null; body: string };
+    created: boolean;
+  };
+}
+
 export interface ActivePlanMeter {
   planIssueId: string;
   title: string;
@@ -82,6 +91,8 @@ export const plansApi = {
     ),
   stop: (issueId: string, reason?: string) =>
     api.post<PlanStopResult>(`/plans/${issueId}/stop`, reason ? { reason } : {}),
+  complete: (issueId: string) =>
+    api.post<PlanCompleteResult>(`/plans/${issueId}/complete`, {}),
   remove: (issueId: string) =>
     api.delete<{ deleted: true; deletedIssueIds: string[] }>(`/plans/${issueId}`),
 

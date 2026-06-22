@@ -390,6 +390,30 @@ export function planService(db: Db) {
       return updated;
     },
 
+    // Mark a plan completed. Only an active or stopped plan is completable;
+    // already-completed → 409. completedAt is caller-supplied so the generated
+    // retrospective document and the row agree on a single timestamp.
+    markCompleted: async (issueId: string, opts: { completedAt?: Date } = {}) => {
+      const [details] = await db
+        .select()
+        .from(planDetails)
+        .where(eq(planDetails.issueId, issueId));
+      if (!details) throw notFound("Plan not found");
+      if (details.state === "completed") {
+        throw conflict("Plan is already completed");
+      }
+      if (details.state !== "active" && details.state !== "stopped") {
+        throw conflict("Only an active or stopped plan can be completed");
+      }
+      const completedAt = opts.completedAt ?? new Date();
+      const [updated] = await db
+        .update(planDetails)
+        .set({ state: "completed", completedAt, updatedAt: new Date() })
+        .where(eq(planDetails.issueId, issueId))
+        .returning();
+      return updated;
+    },
+
     // All issue ids in a plan subtree (root + every descendant), ordered
     // deepest-first so leaves are deleted before their parents (issues.parentId
     // is a self-FK with no cascade).
