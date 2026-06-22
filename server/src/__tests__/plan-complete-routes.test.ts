@@ -276,6 +276,26 @@ describeEmbeddedPostgres("POST /api/plans/:issueId/complete", () => {
     expect(res.body.retrospectiveDocument.document.body).toContain("Plan Retrospective");
   });
 
+  it("omits soft-deleted comments from the retrospective", async () => {
+    const companyId = await seedCompany("DEL");
+    const { rootId, operatorId } = await seedRichPlan(companyId);
+    // A soft-deleted developer comment must not surface in the retrospective.
+    await db.insert(issueComments).values({
+      id: randomUUID(),
+      companyId,
+      issueId: rootId,
+      authorAgentId: operatorId,
+      authorType: "agent",
+      body: "SECRET deleted note",
+      deletedAt: new Date(),
+    });
+    asAgentOf(companyId, operatorId);
+
+    const res = await request(buildApp()).post(`/api/plans/${rootId}/complete`).send({});
+    expect(res.status).toBe(200);
+    expect(res.body.retrospectiveDocument.document.body).not.toContain("SECRET deleted note");
+  });
+
   it("returns 403 when an agent targets another company's plan", async () => {
     const companyA = await seedCompany("AAA");
     const companyB = await seedCompany("BBB");

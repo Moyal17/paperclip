@@ -394,23 +394,29 @@ export function planService(db: Db) {
     // already-completed → 409. completedAt is caller-supplied so the generated
     // retrospective document and the row agree on a single timestamp.
     markCompleted: async (issueId: string, opts: { completedAt?: Date } = {}) => {
-      const [details] = await db
-        .select()
-        .from(planDetails)
-        .where(eq(planDetails.issueId, issueId));
-      if (!details) throw notFound("Plan not found");
-      if (details.state === "completed") {
-        throw conflict("Plan is already completed");
-      }
-      if (details.state !== "active" && details.state !== "stopped") {
-        throw conflict("Only an active or stopped plan can be completed");
-      }
       const completedAt = opts.completedAt ?? new Date();
+      // Atomic guard: only flip from a completable state. A conditional UPDATE
+      // (vs read-then-write) means two concurrent completions can't both pass a
+      // stale state check — the loser updates 0 rows and gets a clean 409.
       const [updated] = await db
         .update(planDetails)
         .set({ state: "completed", completedAt, updatedAt: new Date() })
-        .where(eq(planDetails.issueId, issueId))
+        .where(
+          and(
+            eq(planDetails.issueId, issueId),
+            inArray(planDetails.state, ["active", "stopped"]),
+          ),
+        )
         .returning();
+      if (!updated) {
+        const [existing] = await db
+          .select()
+          .from(planDetails)
+          .where(eq(planDetails.issueId, issueId));
+        if (!existing) throw notFound("Plan not found");
+        if (existing.state === "completed") throw conflict("Plan is already completed");
+        throw conflict("Only an active or stopped plan can be completed");
+      }
       return updated;
     },
 

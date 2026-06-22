@@ -207,6 +207,12 @@ function fmtDate(d: Date | null): string {
   return d ? d.toISOString() : "—";
 }
 
+// Escape values interpolated into pipe-delimited markdown table cells so a title
+// or name containing "|" or a newline can't break the table layout.
+function cell(value: string | null | undefined): string {
+  return (value ?? "—").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+}
+
 function centsToUsd(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
@@ -235,7 +241,7 @@ export function renderRetrospectiveMarkdown(data: RetrospectiveData): string {
   } else {
     lines.push("| Identifier | Title | Status | Assignee |", "| --- | --- | --- | --- |");
     for (const t of data.tasks) {
-      lines.push(`| ${t.identifier ?? "—"} | ${t.title} | ${t.status} | ${t.assigneeName ?? "—"} |`);
+      lines.push(`| ${cell(t.identifier)} | ${cell(t.title)} | ${cell(t.status)} | ${cell(t.assigneeName)} |`);
     }
     lines.push("");
   }
@@ -323,7 +329,7 @@ export function renderRetrospectiveMarkdown(data: RetrospectiveData): string {
     for (const agg of byAgent.values()) {
       const models = [...agg.models].join(", ") || "—";
       lines.push(
-        `| ${agg.agentName ?? "unknown"} | ${models} | ${agg.input} | ${agg.cached} | ${agg.output} | ${centsToUsd(agg.cents)} |`,
+        `| ${cell(agg.agentName ?? "unknown")} | ${cell(models)} | ${agg.input} | ${agg.cached} | ${agg.output} | ${centsToUsd(agg.cents)} |`,
       );
     }
     lines.push(
