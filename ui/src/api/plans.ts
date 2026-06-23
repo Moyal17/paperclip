@@ -93,6 +93,12 @@ export interface AddSupervisionNoteInput {
   actionTaken?: string | null;
 }
 
+export type SupervisionAction =
+  | { action: "rewake"; targetAgentId: string; body?: string }
+  | { action: "cancel"; runId: string; targetAgentId?: string; reason?: string }
+  | { action: "reassign"; targetIssueId: string; newAssigneeAgentId: string; body?: string }
+  | { action: "stop_escalate"; reason?: string };
+
 export const plansApi = {
   create: (input: CreatePlanInput) =>
     api.post<{ issue: Issue; planDetails: PlanDetails }>(`/plans`, input),
@@ -128,4 +134,6 @@ export const plansApi = {
     api.post<{ note: SupervisionNote }>(`/plans/${issueId}/supervision-notes`, body),
   monitorNow: (issueId: string) =>
     api.post<{ woken: boolean }>(`/plans/${issueId}/supervision/monitor`, {}),
+  takeAction: (issueId: string, action: SupervisionAction) =>
+    api.post<{ note: SupervisionNote; actionTaken: string }>(`/plans/${issueId}/supervision/actions`, action),
 };

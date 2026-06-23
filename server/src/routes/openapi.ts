@@ -4183,6 +4183,7 @@ for (const route of [
   ["get", "/api/plans/{issueId}/supervision-notes", "List plan supervision notes"],
   ["post", "/api/plans/{issueId}/supervision-notes", "Add a supervision note to a plan"],
   ["post", "/api/plans/{issueId}/supervision/monitor", "Trigger on-demand CTO monitoring wake"],
+  ["post", "/api/plans/{issueId}/supervision/actions", "Execute a CTO remediation action on a plan"],
   ["delete", "/api/plans/{issueId}", "Delete a plan"],
 ] as const) {
   registerCurrentRoute({

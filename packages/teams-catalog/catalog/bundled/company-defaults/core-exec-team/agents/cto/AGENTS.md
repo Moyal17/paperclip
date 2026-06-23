@@ -77,6 +77,54 @@ Examples of things worth a note:
 Examples of things NOT worth a note:
 - All agents `working`, routine commits/status changes, no anomalies
 
+## Plan remediation actions
+
+When you see an issue that requires intervention, you can take action via:
+`POST /api/plans/{planIssueId}/supervision/actions`
+
+The request body is a discriminated union on `action`:
+
+### Re-wake a stalled agent
+```json
+{ "action": "rewake", "targetAgentId": "<uuid>", "body": "optional note text" }
+```
+Use when: agent is classified `needs_rewake` or `stuck` but not looping. Agent
+was doing work but its heartbeat timed out or was never triggered.
+
+### Cancel a stuck run
+```json
+{ "action": "cancel", "runId": "<uuid>", "targetAgentId": "<uuid>", "reason": "why" }
+```
+Use when: agent has an active run that is looping, consuming resources, or hung.
+`runId` is the heartbeat run id from the health diagnosis or activity log.
+`targetAgentId` is optional (used to attach the note to that agent).
+
+### Reassign a task
+```json
+{ "action": "reassign", "targetIssueId": "<uuid>", "newAssigneeAgentId": "<uuid>", "body": "optional" }
+```
+Use when: original assignee is stuck_critical, repeatedly failing, or clearly the
+wrong agent for the task. The new agent is woken immediately after reassignment.
+
+### Stop and escalate to board
+```json
+{ "action": "stop_escalate", "reason": "why the plan must stop" }
+```
+Use when: the plan has a blocker that cannot be resolved autonomously — a
+dependency is missing, budget is exhausted, a critical decision needs human input.
+This cancels all active work and marks the plan stopped. The board will see the
+reason in the supervision timeline.
+
+Every action writes an `action` supervision note to the plan timeline with
+`actionTaken` set to the action type. The timeline shows what you did and when.
+
+**Decision guide:**
+- Agent returned from a run and is now idle → `rewake`
+- Agent is stuck in a loop (repeated identical output) → `cancel` the run, then `rewake`
+- Agent is wrong fit for the task → `reassign`
+- Plan cannot proceed without human decision → `stop_escalate`
+- Everything looks fine but slow → do nothing (post an observation note at most)
+
 ## Safety
 
 - Never commit secrets or customer data.

@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { z } from "zod";
 import type { Db } from "@paperclipai/db";
+import { eq } from "drizzle-orm";
+import { heartbeatRuns, issues as issuesTable } from "@paperclipai/db";
 import { planService, type PlanTier } from "../services/plans.js";
 import { agentService, heartbeatService, issueService, logActivity } from "../services/index.js";
 import { diagnosePlanHealth } from "../services/plan-supervision.js";
@@ -520,6 +522,184 @@ export function planRoutes(
       }
       throw err;
     }
+  });
+
+  const supervisionActionSchema = z.discriminatedUnion("action", [
+    z.object({
+      action: z.literal("rewake"),
+      targetAgentId: z.string().uuid(),
+      body: z.string().min(1).max(2000).optional(),
+    }),
+    z.object({
+      action: z.literal("cancel"),
+      runId: z.string().uuid(),
+      targetAgentId: z.string().uuid().optional(),
+      reason: z.string().min(1).max(2000).optional(),
+    }),
+    z.object({
+      action: z.literal("reassign"),
+      targetIssueId: z.string().uuid(),
+      newAssigneeAgentId: z.string().uuid(),
+      body: z.string().min(1).max(2000).optional(),
+    }),
+    z.object({
+      action: z.literal("stop_escalate"),
+      reason: z.string().min(1).max(2000).optional(),
+    }),
+  ]);
+
+  // CTO-callable remediation actions. Each dispatches to the appropriate
+  // primitive and appends an action supervision note to the plan timeline.
+  router.post("/plans/:issueId/supervision/actions", async (req, res) => {
+    const parsed = supervisionActionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid action payload", details: parsed.error.flatten() });
+      return;
+    }
+    const planIssueId = req.params.issueId as string;
+    const existing = await issues.getById(planIssueId);
+    if (!existing) {
+      res.status(404).json({ error: "Plan not found" });
+      return;
+    }
+    assertCompanyAccess(req, existing.companyId);
+    const actor = getActorInfo(req);
+    const data = parsed.data;
+
+    let actionTaken: string;
+    let noteBody: string;
+    let targetAgentId: string | null = null;
+    let targetIssueId: string | null = null;
+
+    if (data.action === "rewake") {
+      const targetAgent = await agentsSvc.getById(data.targetAgentId);
+      if (!targetAgent || targetAgent.companyId !== existing.companyId) {
+        res.status(400).json({ error: "Target agent not found in this company" });
+        return;
+      }
+      await heartbeat.wakeup(data.targetAgentId, {
+        source: "on_demand",
+        reason: "cto_rewake",
+        requestedByActorType: actor.actorType,
+        requestedByActorId: actor.actorId,
+      });
+      actionTaken = "rewake";
+      targetAgentId = data.targetAgentId;
+      noteBody = data.body ?? `CTO re-woke agent ${data.targetAgentId.slice(0, 8)} to resume work.`;
+    } else if (data.action === "cancel") {
+      const [targetRun] = await db
+        .select({ companyId: heartbeatRuns.companyId })
+        .from(heartbeatRuns)
+        .where(eq(heartbeatRuns.id, data.runId));
+      if (!targetRun || targetRun.companyId !== existing.companyId) {
+        res.status(400).json({ error: "Run not found in this company" });
+        return;
+      }
+      await heartbeat.cancelRun(data.runId, data.reason ?? "Cancelled by CTO");
+      actionTaken = "cancel";
+      targetAgentId = data.targetAgentId ?? null;
+      noteBody = data.reason ?? `CTO cancelled run ${data.runId.slice(0, 8)}.`;
+    } else if (data.action === "reassign") {
+      const targetIssue = await issues.getById(data.targetIssueId);
+      if (!targetIssue || targetIssue.companyId !== existing.companyId) {
+        res.status(400).json({ error: "Target issue not found in this company" });
+        return;
+      }
+      const newAgent = await agentsSvc.getById(data.newAssigneeAgentId);
+      if (!newAgent || newAgent.companyId !== existing.companyId) {
+        res.status(400).json({ error: "New assignee agent not found in this company" });
+        return;
+      }
+      const updatedIssue = await db
+        .update(issuesTable)
+        .set({ assigneeAgentId: data.newAssigneeAgentId, updatedAt: new Date() })
+        .where(eq(issuesTable.id, data.targetIssueId))
+        .returning();
+      await logActivity(db, {
+        companyId: existing.companyId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        agentId: actor.agentId,
+        runId: actor.runId,
+        action: "issue.updated",
+        entityType: "issue",
+        entityId: data.targetIssueId,
+        details: { assigneeAgentId: data.newAssigneeAgentId, mutationSource: "cto_reassign" },
+      });
+      const reassignedIssue = updatedIssue[0];
+      if (reassignedIssue) {
+        queueIssueAssignmentWakeup({
+          heartbeat,
+          issue: { id: reassignedIssue.id, assigneeAgentId: reassignedIssue.assigneeAgentId ?? null, status: reassignedIssue.status },
+          reason: "issue_reassigned_by_cto",
+          mutation: "assigneeAgentId",
+          contextSource: "cto_supervision_action",
+          requestedByActorType: actor.actorType,
+          requestedByActorId: actor.actorId,
+        });
+      }
+      actionTaken = "reassign";
+      targetIssueId = data.targetIssueId;
+      targetAgentId = data.newAssigneeAgentId;
+      noteBody = data.body ?? `CTO reassigned issue ${data.targetIssueId.slice(0, 8)} to agent ${data.newAssigneeAgentId.slice(0, 8)}.`;
+    } else {
+      // stop_escalate
+      const reason = (data as { reason?: string }).reason ?? "CTO stopped and escalated plan to board";
+      await cancelIssueSubtree(
+        db,
+        { heartbeat },
+        { id: planIssueId, companyId: existing.companyId },
+        {
+          actorType: actor.actorType,
+          actorId: actor.actorId,
+          agentId: actor.agentId,
+          userId: actor.actorType === "user" ? actor.actorId : null,
+          runId: actor.runId,
+        },
+        reason,
+      );
+      await plans.markStopped(planIssueId, reason);
+      publishLiveEvent({
+        companyId: existing.companyId,
+        type: "plan.state.changed",
+        payload: { planIssueId, state: "stopped", reason },
+      });
+      actionTaken = "stop_escalate";
+      noteBody = reason;
+    }
+
+    const note = await addSupervisionNote(db, {
+      planIssueId,
+      companyId: existing.companyId,
+      authorAgentId: actor.agentId ?? null,
+      authorUserId: actor.actorType === "user" ? actor.actorId : null,
+      kind: "action",
+      severity: "warning",
+      body: noteBody,
+      targetAgentId,
+      targetIssueId,
+      actionTaken,
+    });
+
+    publishLiveEvent({
+      companyId: existing.companyId,
+      type: "plan.supervision.note",
+      payload: { planIssueId, noteId: note.id },
+    });
+
+    await logActivity(db, {
+      companyId: existing.companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "plan.supervision_action_taken",
+      entityType: "issue",
+      entityId: planIssueId,
+      details: { actionTaken, noteId: note.id },
+    });
+
+    res.status(201).json({ note, actionTaken });
   });
 
   // Delete a plan and its entire subtree. Cancels active work first so no
