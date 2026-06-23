@@ -44,12 +44,18 @@ export async function addSupervisionNote(db: Db, input: SupervisionNoteInput) {
 export async function listSupervisionNotes(
   db: Db,
   planIssueId: string,
+  companyId: string,
   limit = 50,
 ) {
   return db
     .select()
     .from(planSupervisionNotes)
-    .where(eq(planSupervisionNotes.planIssueId, planIssueId))
+    .where(
+      and(
+        eq(planSupervisionNotes.planIssueId, planIssueId),
+        eq(planSupervisionNotes.companyId, companyId),
+      ),
+    )
     .orderBy(desc(planSupervisionNotes.createdAt))
     .limit(limit);
 }
@@ -153,7 +159,11 @@ export async function tickPlanMonitoring(
     try {
       context = await buildMonitorContext(db, plan.issueId, plan.companyId, since);
     } catch (err) {
-      logger.warn({ err, planIssueId: plan.issueId }, "plan monitoring: failed to build context, skipping wake");
+      // Deliberate degradation: a context-build failure (DB blip, diagnosis
+      // error) skips this one monitoring cycle rather than tight-looping every
+      // tick. The CTO simply misses one cadence wake; lastMonitoredAt is stamped
+      // so the next attempt waits a full interval. Logged at error for visibility.
+      logger.error({ err, planIssueId: plan.issueId }, "plan monitoring: failed to build context, skipping this cycle");
       await db
         .update(planDetails)
         .set({ lastMonitoredAt: now, updatedAt: now })

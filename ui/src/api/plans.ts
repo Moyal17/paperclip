@@ -89,7 +89,6 @@ export interface AddSupervisionNoteInput {
   body: string;
   targetAgentId?: string | null;
   targetIssueId?: string | null;
-  healthSnapshot?: Record<string, unknown> | null;
   actionTaken?: string | null;
 }
 

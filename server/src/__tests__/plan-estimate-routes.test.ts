@@ -83,6 +83,36 @@ describeEmbeddedPostgres("PATCH /plans/:issueId/estimate + GET /plans/:issueId/s
     return rootId;
   }
 
+  // An issue with NO plan_details sidecar — i.e. a regular issue, not a plan.
+  async function seedNonPlanIssue(companyId: string) {
+    const id = randomUUID();
+    await db.insert(issues).values({
+      id,
+      companyId,
+      title: "Regular Issue",
+      workMode: "task",
+      status: "in_progress",
+    });
+    return id;
+  }
+
+  async function seedAgent(companyId: string) {
+    const id = randomUUID();
+    await db.insert(agents).values({
+      id,
+      companyId,
+      name: "Estimator",
+      role: "engineer",
+      urlKey: `agent-${id.slice(0, 6)}`,
+      status: "idle",
+      adapterType: "codex_local",
+      adapterConfig: {},
+      runtimeConfig: { heartbeat: { enabled: true, intervalSec: 60, wakeOnDemand: true } },
+      permissions: {},
+    });
+    return id;
+  }
+
   beforeAll(async () => {
     tempDb = await startEmbeddedPostgresTestDatabase("paperclip-plan-estimate-routes-");
     db = createDb(tempDb.connectionString);
@@ -176,6 +206,41 @@ describeEmbeddedPostgres("PATCH /plans/:issueId/estimate + GET /plans/:issueId/s
     expect(res.status).toBe(404);
   });
 
+  it("PATCH estimate 404 — issue exists but is not a plan (no plan_details)", async () => {
+    const companyId = await seedCompany();
+    const issueId = await seedNonPlanIssue(companyId);
+    asBoardOf(companyId);
+
+    const res = await request(buildApp())
+      .patch(`/api/plans/${issueId}/estimate`)
+      .send({ estimatedCompletionAt: new Date(Date.now() + 3600_000).toISOString() });
+
+    expect(res.status).toBe(404);
+    expect(res.body.error).toMatch(/not a plan/i);
+  });
+
+  it("PATCH estimate — estimatorAgentId-only update does NOT clear etaOverrunNotifiedAt", async () => {
+    const companyId = await seedCompany();
+    const planId = await seedPlan(companyId);
+    const agentId = await seedAgent(companyId);
+    // Pre-stamp the one-shot overrun guard.
+    const stamped = new Date(Date.now() - 60_000);
+    await db
+      .update(planDetails)
+      .set({ etaOverrunNotifiedAt: stamped })
+      .where(eq(planDetails.issueId, planId));
+    asBoardOf(companyId);
+
+    // Update only estimatorAgentId — ETA itself is untouched.
+    const res = await request(buildApp())
+      .patch(`/api/plans/${planId}/estimate`)
+      .send({ estimatorAgentId: agentId });
+
+    expect(res.status).toBe(200);
+    // The guard must survive — re-arming it here would cause a spurious re-wake.
+    expect(res.body.planDetails.etaOverrunNotifiedAt).not.toBeNull();
+  });
+
   it("PATCH estimate 403 — cross-company agent", async () => {
     const companyId = await seedCompany();
     const otherCompanyId = await seedCompany();
@@ -214,6 +279,17 @@ describeEmbeddedPostgres("PATCH /plans/:issueId/estimate + GET /plans/:issueId/s
     const res = await request(buildApp()).get(`/api/plans/${randomUUID()}/supervision/health`);
 
     expect(res.status).toBe(404);
+  });
+
+  it("GET supervision/health 404 — issue exists but is not a plan", async () => {
+    const companyId = await seedCompany();
+    const issueId = await seedNonPlanIssue(companyId);
+    asBoardOf(companyId);
+
+    const res = await request(buildApp()).get(`/api/plans/${issueId}/supervision/health`);
+
+    expect(res.status).toBe(404);
+    expect(res.body.error).toMatch(/not a plan/i);
   });
 
   it("GET supervision/health 403 — cross-company agent", async () => {

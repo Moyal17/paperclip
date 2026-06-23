@@ -578,13 +578,15 @@ export function planService(db: Db) {
       issueId: string,
       input: { estimatedCompletionAt?: Date | null; estimatorAgentId?: string | null },
     ) => {
+      // Only clear the one-shot overrun guard when the ETA itself moves. A call
+      // that updates estimatorAgentId alone must NOT re-arm the overrun wake.
+      const etaChanged = input.estimatedCompletionAt !== undefined;
       const [updated] = await db
         .update(planDetails)
         .set({
           estimatedCompletionAt: input.estimatedCompletionAt,
           estimatorAgentId: input.estimatorAgentId,
-          // Clear the one-shot guard so a re-set ETA can trigger a new overrun wake.
-          etaOverrunNotifiedAt: null,
+          ...(etaChanged ? { etaOverrunNotifiedAt: null } : {}),
           updatedAt: new Date(),
         })
         .where(eq(planDetails.issueId, issueId))

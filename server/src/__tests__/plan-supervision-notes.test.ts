@@ -154,7 +154,7 @@ describeEmbeddedPostgres("plan supervision notes", () => {
       await addSupervisionNote(db, { planIssueId, companyId, kind: "observation", body: "First" });
       await addSupervisionNote(db, { planIssueId, companyId, kind: "observation", body: "Second" });
 
-      const notes = await listSupervisionNotes(db, planIssueId);
+      const notes = await listSupervisionNotes(db, planIssueId, companyId);
       expect(notes.length).toBe(2);
       // Most recent first
       expect(notes[0].body).toBe("Second");
@@ -169,7 +169,7 @@ describeEmbeddedPostgres("plan supervision notes", () => {
       await addSupervisionNote(db, { planIssueId: planA, companyId, kind: "observation", body: "A note" });
       await addSupervisionNote(db, { planIssueId: planB, companyId, kind: "observation", body: "B note" });
 
-      const notesA = await listSupervisionNotes(db, planA);
+      const notesA = await listSupervisionNotes(db, planA, companyId);
       expect(notesA.length).toBe(1);
       expect(notesA[0].body).toBe("A note");
     });
@@ -374,6 +374,18 @@ describeEmbeddedPostgres("plan supervision notes", () => {
         .send({ kind: "unknown_kind", body: "test" });
       expect(res.status).toBe(400);
     });
+
+    it("returns 403 for cross-company request", async () => {
+      const companyA = await seedCompany();
+      const companyB = await seedCompany();
+      const planId = await seedPlan(companyA);
+      asAgentOf(companyB);
+
+      const res = await request(buildApp())
+        .post(`/api/plans/${planId}/supervision-notes`)
+        .send({ kind: "observation", body: "x" });
+      expect(res.status).toBe(403);
+    });
   });
 
   describe("POST /api/plans/:issueId/supervision/monitor", () => {
@@ -386,6 +398,18 @@ describeEmbeddedPostgres("plan supervision notes", () => {
         .send({});
 
       expect(res.status).toBe(404);
+    });
+
+    it("returns 403 for cross-company request", async () => {
+      const companyA = await seedCompany();
+      const companyB = await seedCompany();
+      const planId = await seedPlan(companyA);
+      asAgentOf(companyB);
+
+      const res = await request(buildApp())
+        .post(`/api/plans/${planId}/supervision/monitor`)
+        .send({});
+      expect(res.status).toBe(403);
     });
 
     it("returns 409 for non-active plan", async () => {

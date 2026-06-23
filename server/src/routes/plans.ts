@@ -1,10 +1,10 @@
 import { Router } from "express";
 import { z } from "zod";
 import type { Db } from "@paperclipai/db";
-import { eq } from "drizzle-orm";
-import { heartbeatRuns, issues as issuesTable } from "@paperclipai/db";
+import { and, eq } from "drizzle-orm";
+import { heartbeatRuns, issues as issuesTable, planDetails as planDetailsTable } from "@paperclipai/db";
 import { planService, type PlanTier } from "../services/plans.js";
-import { agentService, heartbeatService, issueService, logActivity } from "../services/index.js";
+import { agentService, heartbeatService, issueRecoveryActionService, issueService, logActivity } from "../services/index.js";
 import { diagnosePlanHealth } from "../services/plan-supervision.js";
 import {
   addSupervisionNote,
@@ -18,6 +18,11 @@ import { publishLiveEvent } from "../services/live-events.js";
 import { assertCompanyAccess, getActorInfo } from "./authz.js";
 import { logger } from "../middleware/logger.js";
 import type { PluginWorkerManager } from "../services/plugin-worker-manager.js";
+
+// Heartbeat run statuses that can be cancelled. Mirrors
+// CANCELLABLE_HEARTBEAT_RUN_STATUSES in heartbeat.ts (module-private there);
+// used to reject CTO cancel actions against already-terminal runs.
+const CANCELLABLE_RUN_STATUSES: readonly string[] = ["queued", "running", "scheduled_retry"];
 
 const planTierSchema = z.object({
   id: z.string(),
@@ -81,6 +86,7 @@ export function planRoutes(
   const plans = planService(db);
   const issues = issueService(db);
   const agentsSvc = agentService(db);
+  const recoveryActions = issueRecoveryActionService(db);
   const heartbeat = heartbeatService(db, { pluginWorkerManager: opts.pluginWorkerManager });
 
   // Create a plan (manual authoring, or assign-to-agent so a CTO agent drafts it).
@@ -389,6 +395,12 @@ export function planRoutes(
       estimatedCompletionAt: rawEta != null ? new Date(rawEta) : rawEta,
       estimatorAgentId: parsed.data.estimatorAgentId,
     });
+    // setEstimate updates 0 rows when the issue has no plan_details sidecar.
+    // Don't report success (or fire the activity/live event) for a non-plan issue.
+    if (!updated) {
+      res.status(404).json({ error: "Issue is not a plan" });
+      return;
+    }
     await logActivity(db, {
       companyId: existing.companyId,
       actorType: actor.actorType,
@@ -420,17 +432,28 @@ export function planRoutes(
       return;
     }
     assertCompanyAccess(req, existing.companyId);
+    const [planRow] = await db
+      .select({ issueId: planDetailsTable.issueId })
+      .from(planDetailsTable)
+      .where(eq(planDetailsTable.issueId, existing.id));
+    if (!planRow) {
+      res.status(404).json({ error: "Issue is not a plan" });
+      return;
+    }
     const health = await diagnosePlanHealth(req.params.issueId as string, db);
     res.json({ health });
   });
 
+  // healthSnapshot is intentionally NOT accepted from the request body — it is
+  // a structured PlanHealthDiagnosis populated only by internal callers (the
+  // overrun tick) via addSupervisionNote directly. Accepting arbitrary client
+  // JSON here would let a caller store malformed data under that type.
   const addNoteSchema = z.object({
     kind: z.enum(["observation", "overrun", "action"]),
     severity: z.enum(["info", "warning", "critical"]).optional(),
     body: z.string().min(1).max(8000),
     targetAgentId: z.string().uuid().nullish(),
     targetIssueId: z.string().uuid().nullish(),
-    healthSnapshot: z.record(z.unknown()).nullish(),
     actionTaken: z.string().nullish(),
   });
 
@@ -442,7 +465,7 @@ export function planRoutes(
       return;
     }
     assertCompanyAccess(req, existing.companyId);
-    const notes = await listSupervisionNotes(db, req.params.issueId as string);
+    const notes = await listSupervisionNotes(db, req.params.issueId as string, existing.companyId);
     res.json({ notes });
   });
 
@@ -472,7 +495,6 @@ export function planRoutes(
       body: parsed.data.body,
       targetAgentId: parsed.data.targetAgentId ?? null,
       targetIssueId: parsed.data.targetIssueId ?? null,
-      healthSnapshot: parsed.data.healthSnapshot as Parameters<typeof addSupervisionNote>[1]["healthSnapshot"],
       actionTaken: parsed.data.actionTaken ?? null,
     });
 
@@ -588,11 +610,17 @@ export function planRoutes(
       noteBody = data.body ?? `CTO re-woke agent ${data.targetAgentId.slice(0, 8)} to resume work.`;
     } else if (data.action === "cancel") {
       const [targetRun] = await db
-        .select({ companyId: heartbeatRuns.companyId })
+        .select({ companyId: heartbeatRuns.companyId, status: heartbeatRuns.status })
         .from(heartbeatRuns)
         .where(eq(heartbeatRuns.id, data.runId));
       if (!targetRun || targetRun.companyId !== existing.companyId) {
         res.status(400).json({ error: "Run not found in this company" });
+        return;
+      }
+      // cancelRun is a no-op for runs already in a terminal status. Reject up
+      // front so the CTO doesn't get a misleading success on an already-done run.
+      if (!CANCELLABLE_RUN_STATUSES.includes(targetRun.status)) {
+        res.status(409).json({ error: "Run is not in a cancellable state" });
         return;
       }
       await heartbeat.cancelRun(data.runId, data.reason ?? "Cancelled by CTO");
@@ -610,10 +638,35 @@ export function planRoutes(
         res.status(400).json({ error: "New assignee agent not found in this company" });
         return;
       }
+      // Mirror normalizeIssueAssigneeAgentReference (issues.ts): never assign
+      // work to a dead/pending/invalid-org-chain agent, or the issue silently
+      // stalls with an assignee that never picks it up.
+      if (newAgent.status === "pending_approval") {
+        res.status(409).json({ error: "Cannot assign work to pending approval agents" });
+        return;
+      }
+      if (newAgent.status === "terminated") {
+        res.status(409).json({ error: "Cannot assign work to terminated agents" });
+        return;
+      }
+      if (newAgent.orgChainHealth?.status === "invalid_org_chain") {
+        res.status(409).json({
+          error: newAgent.orgChainHealth?.repairGuidance ?? "Cannot assign work to agents with invalid org chains",
+        });
+        return;
+      }
+      // Reject if an active recovery action targets this issue — reassigning
+      // out from under it would leave the recovery action pointing at the old
+      // agent. The board must resolve recovery first (see PATCH /issues/:id).
+      const activeRecovery = await recoveryActions.getActiveForIssue(existing.companyId, data.targetIssueId);
+      if (activeRecovery) {
+        res.status(409).json({ error: "Issue has an active recovery action; resolve it before reassigning" });
+        return;
+      }
       const updatedIssue = await db
         .update(issuesTable)
         .set({ assigneeAgentId: data.newAssigneeAgentId, updatedAt: new Date() })
-        .where(eq(issuesTable.id, data.targetIssueId))
+        .where(and(eq(issuesTable.id, data.targetIssueId), eq(issuesTable.companyId, existing.companyId)))
         .returning();
       await logActivity(db, {
         companyId: existing.companyId,
@@ -628,7 +681,7 @@ export function planRoutes(
       });
       const reassignedIssue = updatedIssue[0];
       if (reassignedIssue) {
-        queueIssueAssignmentWakeup({
+        void queueIssueAssignmentWakeup({
           heartbeat,
           issue: { id: reassignedIssue.id, assigneeAgentId: reassignedIssue.assigneeAgentId ?? null, status: reassignedIssue.status },
           reason: "issue_reassigned_by_cto",
@@ -644,7 +697,7 @@ export function planRoutes(
       noteBody = data.body ?? `CTO reassigned issue ${data.targetIssueId.slice(0, 8)} to agent ${data.newAssigneeAgentId.slice(0, 8)}.`;
     } else {
       // stop_escalate
-      const reason = (data as { reason?: string }).reason ?? "CTO stopped and escalated plan to board";
+      const reason = data.reason ?? "CTO stopped and escalated plan to board";
       await cancelIssueSubtree(
         db,
         { heartbeat },

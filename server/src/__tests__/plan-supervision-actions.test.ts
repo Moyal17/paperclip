@@ -75,7 +75,7 @@ describeEmbeddedPostgres("POST /plans/:issueId/supervision/actions", () => {
     return id;
   }
 
-  async function seedAgent(companyId: string) {
+  async function seedAgent(companyId: string, status = "idle") {
     const id = randomUUID();
     await db.insert(agents).values({
       id,
@@ -83,7 +83,7 @@ describeEmbeddedPostgres("POST /plans/:issueId/supervision/actions", () => {
       name: "TestAgent",
       role: "engineer",
       urlKey: `agent-${id.slice(0, 6)}`,
-      status: "idle",
+      status,
       adapterType: "codex_local",
       adapterConfig: {},
       runtimeConfig: { heartbeat: { enabled: true, intervalSec: 60, wakeOnDemand: true } },
@@ -105,26 +105,26 @@ describeEmbeddedPostgres("POST /plans/:issueId/supervision/actions", () => {
     return rootId;
   }
 
-  async function seedIssue(companyId: string, parentId?: string) {
+  async function seedIssue(companyId: string, opts: { parentId?: string; status?: string } = {}) {
     const id = randomUUID();
     await db.insert(issues).values({
       id,
       companyId,
       title: "Child Issue",
       workMode: "task",
-      status: "in_progress",
-      parentId: parentId ?? null,
+      status: opts.status ?? "in_progress",
+      parentId: opts.parentId ?? null,
     });
     return id;
   }
 
-  async function seedHeartbeatRun(companyId: string, agentId: string) {
+  async function seedHeartbeatRun(companyId: string, agentId: string, status = "running") {
     const id = randomUUID();
     await db.insert(heartbeatRuns).values({
       id,
       companyId,
       agentId,
-      status: "running",
+      status,
     });
     return id;
   }
@@ -290,6 +290,21 @@ describeEmbeddedPostgres("POST /plans/:issueId/supervision/actions", () => {
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/company/i);
     });
+
+    it("returns 409 when the run is already in a terminal status", async () => {
+      const companyId = await seedCompany();
+      const planId = await seedPlan(companyId);
+      const agentId = await seedAgent(companyId);
+      const finishedRunId = await seedHeartbeatRun(companyId, agentId, "succeeded");
+      asBoardOf(companyId);
+
+      const res = await request(buildApp())
+        .post(ACTIONS_PATH(planId))
+        .send({ action: "cancel", runId: finishedRunId });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toMatch(/cancellable/i);
+    });
   });
 
   // ─── reassign ────────────────────────────────────────────────────────────────
@@ -337,6 +352,64 @@ describeEmbeddedPostgres("POST /plans/:issueId/supervision/actions", () => {
 
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/company/i);
+    });
+
+    it("returns 409 when new assignee agent is terminated", async () => {
+      const companyId = await seedCompany();
+      const planId = await seedPlan(companyId);
+      // backlog status so the post-update wakeup is skipped (no heartbeat infra)
+      const issueId = await seedIssue(companyId, { status: "backlog" });
+      const deadAgentId = await seedAgent(companyId, "terminated");
+      asBoardOf(companyId);
+
+      const res = await request(buildApp())
+        .post(ACTIONS_PATH(planId))
+        .send({ action: "reassign", targetIssueId: issueId, newAssigneeAgentId: deadAgentId });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toMatch(/terminated/i);
+    });
+
+    it("returns 409 when new assignee agent is pending approval", async () => {
+      const companyId = await seedCompany();
+      const planId = await seedPlan(companyId);
+      const issueId = await seedIssue(companyId, { status: "backlog" });
+      const pendingAgentId = await seedAgent(companyId, "pending_approval");
+      asBoardOf(companyId);
+
+      const res = await request(buildApp())
+        .post(ACTIONS_PATH(planId))
+        .send({ action: "reassign", targetIssueId: issueId, newAssigneeAgentId: pendingAgentId });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toMatch(/pending/i);
+    });
+
+    it("updates the issue assignee and writes an action note (happy path)", async () => {
+      const companyId = await seedCompany();
+      const planId = await seedPlan(companyId);
+      // backlog status so the post-update assignment wakeup is skipped — keeps
+      // the test off the real heartbeat path while exercising the DB write.
+      const issueId = await seedIssue(companyId, { status: "backlog" });
+      const newAgentId = await seedAgent(companyId, "idle");
+      asBoardOf(companyId);
+
+      const res = await request(buildApp())
+        .post(ACTIONS_PATH(planId))
+        .send({ action: "reassign", targetIssueId: issueId, newAssigneeAgentId: newAgentId });
+
+      expect(res.status).toBe(201);
+      expect(res.body.actionTaken).toBe("reassign");
+      expect(res.body.note.kind).toBe("action");
+      expect(res.body.note.actionTaken).toBe("reassign");
+      expect(res.body.note.targetIssueId).toBe(issueId);
+      expect(res.body.note.targetAgentId).toBe(newAgentId);
+
+      const [row] = await db
+        .select({ assigneeAgentId: issues.assigneeAgentId })
+        .from(issues)
+        .where(eq(issues.id, issueId));
+      expect(row?.assigneeAgentId).toBe(newAgentId);
     });
   });
 

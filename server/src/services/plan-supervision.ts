@@ -235,29 +235,39 @@ export async function tickPlanEtaOverruns(
   let notified = 0;
 
   for (const plan of overduePlans) {
-    // Resolve CTO agent; fall back to the plan root's assignee.
-    const { agent: ctoAgent } = await agents_.resolveByReference(plan.companyId, "cto");
-    const wakeTargetId = ctoAgent?.id ?? plan.rootAssigneeAgentId;
+    // Per-plan isolation: a wakeup failure for one plan must not abort the
+    // whole batch, and must not leave that plan stamped-but-unwoken.
+    try {
+      // Resolve CTO agent; fall back to the plan root's assignee.
+      const { agent: ctoAgent } = await agents_.resolveByReference(plan.companyId, "cto");
+      const wakeTargetId = ctoAgent?.id ?? plan.rootAssigneeAgentId;
 
-    if (!wakeTargetId) {
-      logger.warn({ planIssueId: plan.issueId }, "plan ETA overrun: no CTO agent found, stamping notified to suppress retry");
-    } else {
-      await deps.wakeup(wakeTargetId, {
-        source: "automation",
-        reason: "plan_eta_overrun",
-        // idempotencyKey is stored for audit tracing only — the etaOverrunNotifiedAt
-        // IS NULL predicate above is the real dedup guard.
-        idempotencyKey: `eta_overrun:${plan.issueId}`,
-        payload: { planIssueId: plan.issueId },
-        requestedByActorType: "system",
-      });
-      notified++;
+      if (!wakeTargetId) {
+        logger.warn({ planIssueId: plan.issueId }, "plan ETA overrun: no CTO agent found, stamping notified to suppress retry");
+      } else {
+        await deps.wakeup(wakeTargetId, {
+          source: "automation",
+          reason: "plan_eta_overrun",
+          // idempotencyKey is stored for audit tracing only — the etaOverrunNotifiedAt
+          // IS NULL predicate above is the real dedup guard.
+          idempotencyKey: `eta_overrun:${plan.issueId}`,
+          payload: { planIssueId: plan.issueId },
+          requestedByActorType: "system",
+        });
+        notified++;
+      }
+
+      // Stamp only after the wake succeeded (or was deliberately skipped for a
+      // missing CTO). On wake failure we fall through to the catch and leave
+      // etaOverrunNotifiedAt NULL so the next tick retries; the stable
+      // idempotencyKey prevents a duplicate wake if the failed call partially landed.
+      await db
+        .update(planDetails)
+        .set({ etaOverrunNotifiedAt: now, updatedAt: now })
+        .where(eq(planDetails.issueId, plan.issueId));
+    } catch (err) {
+      logger.error({ err, planIssueId: plan.issueId }, "plan ETA overrun: failed to wake CTO, will retry next tick");
     }
-
-    await db
-      .update(planDetails)
-      .set({ etaOverrunNotifiedAt: now, updatedAt: now })
-      .where(eq(planDetails.issueId, plan.issueId));
   }
 
   return { notified };
