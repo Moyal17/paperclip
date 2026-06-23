@@ -25,10 +25,15 @@ export function BudgetMeterWidget({ companyId }: BudgetMeterWidgetProps) {
   }
   if (!data) return null;
 
-  const companyPolicies = data.policies.filter((p) => p.scopeType === "company");
+  const companyTokenPolicy = data.policies.find(
+    (p) => p.scopeType === "company" && p.metric === "total_tokens",
+  );
+  const companySpendPolicy = data.policies.find(
+    (p) => p.scopeType === "company" && p.metric === "billed_cents",
+  );
   const activePlans = data.activePlans.filter((p) => p.budgetCapTokens || p.budgetCapCents);
 
-  if (companyPolicies.length === 0 && activePlans.length === 0) {
+  if (!companyTokenPolicy && !companySpendPolicy && activePlans.length === 0) {
     return (
       <div className="text-xs text-muted-foreground">
         No budget caps set. Add a per-plan cap to auto-stop runaway spend.
@@ -38,16 +43,22 @@ export function BudgetMeterWidget({ companyId }: BudgetMeterWidgetProps) {
 
   return (
     <div className="space-y-3">
-      {companyPolicies.map((p) => (
-        <QuotaBar
-          key={p.policyId}
-          label={`Company · ${metricLabel(p.metric)}`}
-          percentUsed={p.utilizationPercent}
-          leftLabel={`${formatAmount(p.metric, p.observedAmount)} / ${formatAmount(p.metric, p.amount)}`}
-          rightLabel={`${Math.round(p.utilizationPercent)}%`}
-          showDeficitNotch={p.status === "hard_stop"}
-        />
-      ))}
+      {companyTokenPolicy && (
+        <div className="space-y-1">
+          <QuotaBar
+            label="Company · tokens"
+            percentUsed={companyTokenPolicy.utilizationPercent}
+            leftLabel={`${formatTokens(companyTokenPolicy.observedAmount)} tok / ${formatTokens(companyTokenPolicy.amount)} tok`}
+            rightLabel={`${Math.round(companyTokenPolicy.utilizationPercent)}%`}
+            showDeficitNotch={companyTokenPolicy.status === "hard_stop"}
+          />
+          {companySpendPolicy && (
+            <p className="text-[10px] text-muted-foreground tabular-nums">
+              Spend: {formatCents(companySpendPolicy.observedAmount)} / {formatCents(companySpendPolicy.amount)}
+            </p>
+          )}
+        </div>
+      )}
       {activePlans.map((plan) => {
         const cap = plan.budgetCapTokens ?? plan.budgetCapCents ?? 0;
         const observed = plan.observedAmount ?? 0;
@@ -68,12 +79,6 @@ export function BudgetMeterWidget({ companyId }: BudgetMeterWidgetProps) {
   );
 }
 
-function metricLabel(metric: string): string {
-  return metric === "total_tokens" ? "tokens" : "spend";
-}
-function formatAmount(metric: string, n: number): string {
-  return metric === "total_tokens" ? `${formatTokens(n)} tok` : formatCents(n);
-}
 function fmt(isTokens: boolean, n: number): string {
   return isTokens ? `${formatTokens(n)} tok` : formatCents(n);
 }

@@ -750,6 +750,13 @@
       "when": 1780535500000,
       "tag": "0106_plan_gate_enforcement",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1780535600000,
+      "tag": "0107_company_token_budget_150m",
+      "breakpoints": true
     }
   ]
 }
