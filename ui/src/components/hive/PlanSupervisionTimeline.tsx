@@ -1,10 +1,28 @@
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { Agent } from "@paperclipai/shared";
 import { plansApi, type AgentHealthEntry, type SupervisionNote } from "../../api/plans";
+import { agentsApi } from "../../api/agents";
 import { queryKeys } from "../../lib/queryKeys";
 import { timeAgo } from "../../lib/timeAgo";
 import { useToastActions } from "../../context/ToastContext";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { cn } from "../../lib/utils";
+import { AgentIcon } from "../AgentIconPicker";
 
 const SEVERITY_BADGE: Record<SupervisionNote["severity"], string> = {
   info: "bg-muted text-muted-foreground",
@@ -30,12 +48,15 @@ const HEALTH_LABEL: Record<AgentHealthEntry["health"], string> = {
 interface PlanSupervisionTimelineProps {
   planIssueId: string;
   planState: string;
+  companyId: string | null;
 }
 
-export function PlanSupervisionTimeline({ planIssueId, planState }: PlanSupervisionTimelineProps) {
+export function PlanSupervisionTimeline({ planIssueId, planState, companyId }: PlanSupervisionTimelineProps) {
   const queryClient = useQueryClient();
   const { pushToast } = useToastActions();
   const isActive = planState === "active";
+  const [reassignDialog, setReassignDialog] = useState<AgentHealthEntry | null>(null);
+  const [reassignToAgentId, setReassignToAgentId] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: queryKeys.hive.planSupervision(planIssueId),
@@ -46,6 +67,12 @@ export function PlanSupervisionTimeline({ planIssueId, planState }: PlanSupervis
     queryKey: queryKeys.hive.planHealth(planIssueId),
     queryFn: () => plansApi.supervisionHealth(planIssueId),
     enabled: isActive,
+  });
+
+  const { data: agentsData } = useQuery({
+    queryKey: queryKeys.agents.list(companyId ?? "__no-company__"),
+    queryFn: () => agentsApi.list(companyId!),
+    enabled: isActive && !!companyId,
   });
 
   const invalidateSupervision = () => {
@@ -96,6 +123,18 @@ export function PlanSupervisionTimeline({ planIssueId, planState }: PlanSupervis
     onError: (e) => pushToast({ title: "Stop & escalate failed", body: errMsg(e), tone: "error" }),
   });
 
+  const reassign = useMutation({
+    mutationFn: ({ targetIssueId, newAssigneeAgentId }: { targetIssueId: string; newAssigneeAgentId: string }) =>
+      plansApi.takeAction(planIssueId, { action: "reassign", targetIssueId, newAssigneeAgentId }),
+    onSuccess: () => {
+      pushToast({ title: "Issue reassigned", tone: "success" });
+      invalidateSupervision();
+      setReassignDialog(null);
+      setReassignToAgentId(null);
+    },
+    onError: (e) => pushToast({ title: "Reassign failed", body: errMsg(e), tone: "error" }),
+  });
+
   const onStopEscalate = () => {
     const reason = window.prompt(
       "Stop this plan and escalate to the board? This cancels all active work.\n\nReason:",
@@ -108,7 +147,7 @@ export function PlanSupervisionTimeline({ planIssueId, planState }: PlanSupervis
   const notes = data?.notes ?? [];
   const agents = healthData?.health.agents ?? [];
   const overdue = healthData?.health.overdue ?? false;
-  const actionPending = rewake.isPending || stopEscalate.isPending || cancelRun.isPending;
+  const actionPending = rewake.isPending || stopEscalate.isPending || cancelRun.isPending || reassign.isPending;
 
   return (
     <div className="space-y-3">
@@ -164,6 +203,15 @@ export function PlanSupervisionTimeline({ planIssueId, planState }: PlanSupervis
                   >
                     Re-wake
                   </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-6 shrink-0 px-2 text-[11px]"
+                    onClick={() => { setReassignDialog(agent); setReassignToAgentId(null); }}
+                    disabled={actionPending}
+                  >
+                    Reassign
+                  </Button>
                   {agent.runId && (
                     <Button
                       variant="outline"
@@ -192,6 +240,20 @@ export function PlanSupervisionTimeline({ planIssueId, planState }: PlanSupervis
         </div>
       )}
 
+      <ReassignDialog
+        open={!!reassignDialog}
+        agent={reassignDialog}
+        agents={agentsData ?? []}
+        selectedAgentId={reassignToAgentId}
+        onSelectAgent={setReassignToAgentId}
+        pending={reassign.isPending}
+        onConfirm={() => {
+          if (!reassignDialog || !reassignToAgentId) return;
+          reassign.mutate({ targetIssueId: reassignDialog.issueId, newAssigneeAgentId: reassignToAgentId });
+        }}
+        onClose={() => { setReassignDialog(null); setReassignToAgentId(null); }}
+      />
+
       {isLoading && <p className="text-xs text-muted-foreground">Loading…</p>}
 
       {!isLoading && notes.length === 0 && (
@@ -204,6 +266,106 @@ export function PlanSupervisionTimeline({ planIssueId, planState }: PlanSupervis
         ))}
       </div>
     </div>
+  );
+}
+
+interface ReassignDialogProps {
+  open: boolean;
+  agent: AgentHealthEntry | null;
+  agents: Agent[];
+  selectedAgentId: string | null;
+  onSelectAgent: (id: string | null) => void;
+  pending: boolean;
+  onConfirm: () => void;
+  onClose: () => void;
+}
+
+function ReassignDialog({
+  open,
+  agent,
+  agents,
+  selectedAgentId,
+  onSelectAgent,
+  pending,
+  onConfirm,
+  onClose,
+}: ReassignDialogProps) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const eligibleAgents = agents.filter(
+    (a) => a.status !== "terminated" && a.status !== "pending_approval",
+  );
+  const selectedAgent = selectedAgentId ? agents.find((a) => a.id === selectedAgentId) : null;
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Reassign issue</DialogTitle>
+          <DialogDescription>
+            Reassign{" "}
+            <span className="font-mono text-xs text-foreground">
+              {agent?.issueId.slice(0, 8)}
+            </span>{" "}
+            (currently assigned to{" "}
+            <span className="font-medium">{agent?.agentName ?? agent?.agentId.slice(0, 8)}</span>
+            ) to a new agent.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="py-2">
+          <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  "inline-flex w-full items-center gap-1.5 rounded-md border border-border px-2 py-1.5 text-xs hover:bg-accent/50 transition-colors",
+                  !selectedAgent && "text-muted-foreground",
+                )}
+              >
+                {selectedAgent ? (
+                  <>
+                    <AgentIcon icon={selectedAgent.icon} className="h-3 w-3 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 truncate">{selectedAgent.name}</span>
+                  </>
+                ) : (
+                  "Select new assignee…"
+                )}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-56 p-1" align="start">
+              {eligibleAgents.length === 0 ? (
+                <p className="px-2 py-1.5 text-xs text-muted-foreground">No eligible agents.</p>
+              ) : (
+                eligibleAgents.map((a) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    className={cn(
+                      "flex w-full min-w-0 items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-accent/50 overflow-hidden",
+                      a.id === selectedAgentId && "bg-accent",
+                    )}
+                    onClick={() => { onSelectAgent(a.id); setPickerOpen(false); }}
+                  >
+                    <AgentIcon icon={a.icon} className="h-3 w-3 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 truncate">{a.name}</span>
+                    <span className="ml-auto shrink-0 text-muted-foreground">{a.role}</span>
+                  </button>
+                ))
+              )}
+            </PopoverContent>
+          </Popover>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={pending}>
+            Cancel
+          </Button>
+          <Button onClick={onConfirm} disabled={pending || !selectedAgentId}>
+            {pending ? "Reassigning…" : "Reassign"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

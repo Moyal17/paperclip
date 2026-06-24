@@ -136,7 +136,7 @@ export function PlanDetailDrawer({ companyId }: PlanDetailDrawerProps) {
               {planId && <PlanGateRollup companyId={companyId} planIssueId={planId} />}
 
               {planId && (
-                <PlanSupervisionTimeline planIssueId={planId} planState={state} />
+                <PlanSupervisionTimeline planIssueId={planId} planState={state} companyId={companyId} />
               )}
 
               {/* Budget cap */}
