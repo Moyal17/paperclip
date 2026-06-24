@@ -21,7 +21,7 @@ export const GATE_DESIGNATED_URL_KEY: Record<GateApprovalType, string> = {
   [GATE_APPROVAL_TYPES.planApproval]: "architect",
   [GATE_APPROVAL_TYPES.codeReview]: "code-reviewer",
   [GATE_APPROVAL_TYPES.wiringReview]: "wiring-expert",
-  [GATE_APPROVAL_TYPES.completenessReview]: "completeness-critic",
+  [GATE_APPROVAL_TYPES.completenessReview]: "architect",
 };
 
 const GATE_TYPE_TO_REASON: Record<GateApprovalType, IssueBlockedInboxReason> = {
@@ -309,6 +309,9 @@ export function evaluateDevTeamDoneReadiness(input: {
   targetStatus: string;
   currentStatus: string;
   prUrl: string | null;
+  // Whether the project has a remote configured (repoUrl != null). When false,
+  // no PR can ever be opened, so missing_pr is never emitted for dev_team.
+  hasRemote: boolean;
   // Statuses of THIS issue's code-review + wiring-review gate approvals.
   reviewGateStatuses: string[];
 }): { reasons: string[] } {
@@ -317,7 +320,7 @@ export function evaluateDevTeamDoneReadiness(input: {
   if (profile !== "dev_team" && profile !== "light") return { reasons: [] };
 
   const reasons: string[] = [];
-  if (profile === "dev_team" && !input.prUrl) reasons.push("missing_pr");
+  if (profile === "dev_team" && input.hasRemote && !input.prUrl) reasons.push("missing_pr");
   if (input.reviewGateStatuses.some((status) => status !== "approved")) reasons.push("gates_pending");
   return { reasons };
 }

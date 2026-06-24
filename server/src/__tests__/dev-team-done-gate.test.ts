@@ -10,6 +10,7 @@ const base = {
   targetStatus: "done",
   currentStatus: "in_review",
   prUrl: "https://github.com/Moyal17/paperclip/pull/1",
+  hasRemote: true,
   reviewGateStatuses: ["approved", "approved"],
 };
 
@@ -80,6 +81,40 @@ describe("evaluateDevTeamDoneReadiness", () => {
   it("is a no-op when the issue is already done", () => {
     expect(
       evaluateDevTeamDoneReadiness({ ...base, currentStatus: "done", prUrl: null, reviewGateStatuses: ["pending"] }).reasons,
+    ).toEqual([]);
+  });
+
+  // HIV-43: fork-aware PR requirement
+  it("AC1: dev_team + no remote + null prUrl + all gates approved => closeable (no missing_pr)", () => {
+    expect(
+      evaluateDevTeamDoneReadiness({ ...base, hasRemote: false, prUrl: null, reviewGateStatuses: ["approved", "approved"] }).reasons,
+    ).toEqual([]);
+  });
+
+  it("AC2: dev_team + remote configured + null prUrl => missing_pr still required", () => {
+    expect(
+      evaluateDevTeamDoneReadiness({ ...base, hasRemote: true, prUrl: null, reviewGateStatuses: ["approved", "approved"] }).reasons,
+    ).toEqual(["missing_pr"]);
+  });
+
+  it("AC3: dev_team + no remote + review gate pending => gates_pending only, no missing_pr", () => {
+    const result = evaluateDevTeamDoneReadiness({ ...base, hasRemote: false, prUrl: null, reviewGateStatuses: ["pending", "approved"] });
+    expect(result.reasons).toContain("gates_pending");
+    expect(result.reasons).not.toContain("missing_pr");
+  });
+
+  it("AC4: light profile ignores hasRemote — gate on review only, never missing_pr", () => {
+    // No remote, no PR, gate approved → closeable.
+    expect(
+      evaluateDevTeamDoneReadiness({ ...base, gateProfile: "light", hasRemote: false, prUrl: null, reviewGateStatuses: ["approved"] }).reasons,
+    ).toEqual([]);
+    // No remote, no PR, gate pending → gates_pending only.
+    expect(
+      evaluateDevTeamDoneReadiness({ ...base, gateProfile: "light", hasRemote: false, prUrl: null, reviewGateStatuses: ["pending"] }).reasons,
+    ).toEqual(["gates_pending"]);
+    // Remote present, no PR, gate approved → still no missing_pr for light.
+    expect(
+      evaluateDevTeamDoneReadiness({ ...base, gateProfile: "light", hasRemote: true, prUrl: null, reviewGateStatuses: ["approved"] }).reasons,
     ).toEqual([]);
   });
 });

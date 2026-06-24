@@ -675,6 +675,8 @@ export const LIVE_EVENT_TYPES = [
   "plugin.worker.restarted",
   "issue.status.changed",
   "plan.state.changed",
+  "plan.updated",
+  "plan.supervision.note",
   "budget.threshold",
   "killswitch.engaged",
   "killswitch.released",

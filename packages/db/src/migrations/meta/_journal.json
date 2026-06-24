@@ -729,6 +729,41 @@
       "when": 1780535200000,
       "tag": "0103_agent_notes",
       "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1780535300000,
+      "tag": "0104_plan_estimate",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1780535400000,
+      "tag": "0105_plan_supervision_notes",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1780535500000,
+      "tag": "0106_plan_gate_enforcement",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1780535600000,
+      "tag": "0107_company_token_budget_150m",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1780535700000,
+      "tag": "0108_plan_cto_summary",
+      "breakpoints": true
     }
   ]
 }
