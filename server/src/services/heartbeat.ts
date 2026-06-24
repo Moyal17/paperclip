@@ -1748,11 +1748,13 @@ async function resolveLedgerScopeForRun(
   const context = parseObject(run.contextSnapshot);
   const contextIssueId = readNonEmptyString(context.issueId);
   const contextProjectId = readNonEmptyString(context.projectId);
+  const contextPlanIssueId = readNonEmptyString(context.planIssueId);
 
   if (!contextIssueId) {
     return {
       issueId: null,
       projectId: contextProjectId,
+      planIssueId: contextPlanIssueId,
     };
   }
 
@@ -1760,6 +1762,7 @@ async function resolveLedgerScopeForRun(
     .select({
       id: issues.id,
       projectId: issues.projectId,
+      planRootIssueId: issues.planRootIssueId,
     })
     .from(issues)
     .where(and(eq(issues.id, contextIssueId), eq(issues.companyId, companyId)))
@@ -1768,6 +1771,7 @@ async function resolveLedgerScopeForRun(
   return {
     issueId: issue?.id ?? null,
     projectId: issue?.projectId ?? contextProjectId,
+    planIssueId: contextPlanIssueId ?? issue?.planRootIssueId ?? null,
   };
 }
 
@@ -2459,6 +2463,10 @@ function enrichWakeContextSnapshot(input: {
   }
   if (!readNonEmptyString(contextSnapshot["wakeTriggerDetail"]) && triggerDetail) {
     contextSnapshot.wakeTriggerDetail = triggerDetail;
+  }
+  const planIssueIdFromPayload = readNonEmptyString(payload?.["planIssueId"]);
+  if (!readNonEmptyString(contextSnapshot["planIssueId"]) && planIssueIdFromPayload) {
+    contextSnapshot.planIssueId = planIssueIdFromPayload;
   }
   normalizeModelProfileWakeContext({ contextSnapshot, payload });
   normalizeInteractionContinuationWakeContext(contextSnapshot, payload);
@@ -7842,6 +7850,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         agentId: agent.id,
         issueId: ledgerScope.issueId,
         projectId: ledgerScope.projectId,
+        planIssueId: ledgerScope.planIssueId,
         provider,
         biller,
         billingType,

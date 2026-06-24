@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "@/lib/router";
 import { useState, useEffect } from "react";
 import { plansApi } from "../../api/plans";
+import type { AgentTokenStat } from "../../api/plans";
 import { useToastActions } from "../../context/ToastContext";
 import { queryKeys } from "../../lib/queryKeys";
 import { formatTokens } from "../../lib/utils";
@@ -37,6 +38,12 @@ export function PlanDetailDrawer({ companyId }: PlanDetailDrawerProps) {
   const { data: plan } = useQuery({
     queryKey: queryKeys.hive.plan(planId!),
     queryFn: () => plansApi.get(planId!),
+    enabled: !!planId,
+  });
+
+  const { data: tokenStatsData } = useQuery({
+    queryKey: queryKeys.hive.planTokenStats(planId!),
+    queryFn: () => plansApi.tokenStats(planId!),
     enabled: !!planId,
   });
 
@@ -110,7 +117,7 @@ export function PlanDetailDrawer({ companyId }: PlanDetailDrawerProps) {
 
   return (
     <Sheet open={!!planId} onOpenChange={(o) => { if (!o) close(); }}>
-      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-md">
+      <SheetContent side="right" className="w-full overflow-y-auto sm:min-w-[30%] sm:max-w-[40%]">
         {plan ? (
           <>
             <SheetHeader>
@@ -254,6 +261,9 @@ export function PlanDetailDrawer({ companyId }: PlanDetailDrawerProps) {
                   )}
                 </div>
               )}
+
+              {/* Token consumption per agent */}
+              <PlanTokenStatsTable stats={tokenStatsData?.stats ?? []} />
             </div>
           </>
         ) : (
@@ -264,6 +274,76 @@ export function PlanDetailDrawer({ companyId }: PlanDetailDrawerProps) {
       </SheetContent>
     </Sheet>
   );
+}
+
+function PlanTokenStatsTable({ stats }: { stats: AgentTokenStat[] }) {
+  const totalTokens = stats.reduce((s, r) => s + r.totalInputTokens + r.totalOutputTokens, 0);
+  const totalCostCents = stats.reduce((s, r) => s + r.totalCostCents, 0);
+
+  return (
+    <div className="space-y-2">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Token consumption
+      </h3>
+      {stats.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground">
+          No token data yet. Data is recorded on runs after this feature was deployed.
+        </p>
+      ) : (
+        <div className="overflow-x-auto rounded-md border border-border">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-border bg-muted/40">
+                <th className="px-2.5 py-1.5 text-left font-medium text-muted-foreground">Agent</th>
+                <th className="px-2.5 py-1.5 text-right font-medium text-muted-foreground">Tokens</th>
+                <th className="px-2.5 py-1.5 text-right font-medium text-muted-foreground">Est. cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stats.map((row) => (
+                <tr key={row.agentId} className="border-b border-border last:border-0">
+                  <td className="px-2.5 py-1.5">
+                    <span className="font-medium">{row.agentName ?? row.agentId.slice(0, 8)}</span>
+                    {row.role && (
+                      <span className="ml-1.5 text-[10px] text-muted-foreground capitalize">
+                        {row.role}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-2.5 py-1.5 text-right tabular-nums text-muted-foreground">
+                    {formatTokens(row.totalInputTokens + row.totalOutputTokens)}
+                  </td>
+                  <td className="px-2.5 py-1.5 text-right tabular-nums">
+                    {formatCostCents(row.totalCostCents)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            {stats.length > 1 && (
+              <tfoot>
+                <tr className="border-t border-border bg-muted/20">
+                  <td className="px-2.5 py-1.5 font-medium">Total</td>
+                  <td className="px-2.5 py-1.5 text-right tabular-nums font-medium">
+                    {formatTokens(totalTokens)}
+                  </td>
+                  <td className="px-2.5 py-1.5 text-right tabular-nums font-medium">
+                    {formatCostCents(totalCostCents)}
+                  </td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatCostCents(cents: number): string {
+  if (cents === 0) return "$0.00";
+  const dollars = cents / 100;
+  if (dollars < 0.01) return "<$0.01";
+  return `$${dollars.toFixed(2)}`;
 }
 
 function errMsg(e: unknown): string {

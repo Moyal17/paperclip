@@ -46,6 +46,7 @@ export function GateBadgeRow({ summary }: { summary: IssueGateSummary }) {
     <div className="mt-1.5 flex flex-wrap items-center gap-1" aria-label="Gate status">
       {summary.gates.map((gate) => {
         const style = STATUS_STYLE[gate.status];
+        if (!style) return null;
         const Icon = style.Icon;
         return (
           <span

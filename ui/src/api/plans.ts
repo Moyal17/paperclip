@@ -128,6 +128,15 @@ export type SupervisionAction =
   | { action: "reassign"; targetIssueId: string; newAssigneeAgentId: string; body?: string }
   | { action: "stop_escalate"; reason?: string };
 
+export interface AgentTokenStat {
+  agentId: string;
+  agentName: string | null;
+  role: string | null;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCostCents: number;
+}
+
 export const plansApi = {
   create: (input: CreatePlanInput) =>
     api.post<{ issue: Issue; planDetails: PlanDetails }>(`/plans`, input),
@@ -171,4 +180,6 @@ export const plansApi = {
     api.post<{ woken: boolean }>(`/plans/${issueId}/supervision/monitor`, {}),
   takeAction: (issueId: string, action: SupervisionAction) =>
     api.post<{ note: SupervisionNote; actionTaken: string }>(`/plans/${issueId}/supervision/actions`, action),
+  tokenStats: (issueId: string) =>
+    api.get<{ stats: AgentTokenStat[] }>(`/plans/${issueId}/token-stats`),
 };

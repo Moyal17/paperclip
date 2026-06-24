@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { z } from "zod";
 import type { Db } from "@paperclipai/db";
-import { and, eq } from "drizzle-orm";
-import { heartbeatRuns, issues as issuesTable, planDetails as planDetailsTable } from "@paperclipai/db";
+import { and, desc, eq, sql } from "drizzle-orm";
+import { agents, costEvents, heartbeatRuns, issues as issuesTable, planDetails as planDetailsTable } from "@paperclipai/db";
 import { planService, type PlanTier } from "../services/plans.js";
 import { agentService, heartbeatService, issueRecoveryActionService, issueService, logActivity } from "../services/index.js";
 import { diagnosePlanHealth } from "../services/plan-supervision.js";
@@ -461,6 +461,38 @@ export function planRoutes(
     }
     const health = await diagnosePlanHealth(req.params.issueId as string, db);
     res.json({ health });
+  });
+
+  router.get("/plans/:issueId/token-stats", async (req, res) => {
+    const existing = await issues.getById(req.params.issueId as string);
+    if (!existing) {
+      res.status(404).json({ error: "Plan not found" });
+      return;
+    }
+    assertCompanyAccess(req, existing.companyId);
+    const [planRow] = await db
+      .select({ issueId: planDetailsTable.issueId })
+      .from(planDetailsTable)
+      .where(eq(planDetailsTable.issueId, existing.id));
+    if (!planRow) {
+      res.status(404).json({ error: "Issue is not a plan" });
+      return;
+    }
+    const rows = await db
+      .select({
+        agentId: costEvents.agentId,
+        agentName: agents.name,
+        role: agents.role,
+        totalInputTokens: sql<number>`coalesce(sum(${costEvents.inputTokens}), 0)::double precision`,
+        totalOutputTokens: sql<number>`coalesce(sum(${costEvents.outputTokens}), 0)::double precision`,
+        totalCostCents: sql<number>`coalesce(sum(${costEvents.costCents}), 0)::double precision`,
+      })
+      .from(costEvents)
+      .innerJoin(agents, eq(agents.id, costEvents.agentId))
+      .where(and(eq(costEvents.planIssueId, existing.id), eq(costEvents.companyId, existing.companyId)))
+      .groupBy(costEvents.agentId, agents.name, agents.role)
+      .orderBy(desc(sql`coalesce(sum(${costEvents.costCents}), 0)`));
+    res.json({ stats: rows });
   });
 
   // healthSnapshot is intentionally NOT accepted from the request body — it is
