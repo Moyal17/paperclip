@@ -1666,7 +1666,7 @@ export function issueRoutes(
   // back so the caller can log it. Returns the unmet reasons for an override;
   // throws for an agent that fails the gate.
   async function evaluateDevTeamDoneGate(input: {
-    existing: { id: string; status: string; planRootIssueId: string | null; prUrl: string | null };
+    existing: { id: string; status: string; planRootIssueId: string | null; prUrl: string | null; projectId: string | null };
     targetStatus: string;
     actorType: "agent" | "user";
   }): Promise<{ overrideReasons: string[] }> {
@@ -1681,6 +1681,15 @@ export function issueRoutes(
     // Only profiles that carry a done-gate reach the readiness check. solo/none
     // are never gated; light + dev_team are (the pure fn applies the right reqs).
     if (plan?.gateProfile !== "dev_team" && plan?.gateProfile !== "light") return none;
+
+    // PR is only required for dev_team when the project has a remote configured.
+    // Local/no-fork workspaces (repoUrl === null) can never open a PR, so the
+    // missing_pr reason must be suppressed to avoid a permanent dead-end (HIV-43).
+    let hasRemote = false;
+    if (plan.gateProfile === "dev_team") {
+      const project = input.existing.projectId ? await projectsSvc.getById(input.existing.projectId) : null;
+      hasRemote = project?.codebase?.repoUrl != null;
+    }
 
     const linkedApprovals = await issueApprovalsSvc.listApprovalsForIssue(input.existing.id);
     const reviewGateStatuses = linkedApprovals
@@ -1697,6 +1706,7 @@ export function issueRoutes(
       targetStatus: input.targetStatus,
       currentStatus: input.existing.status,
       prUrl: input.existing.prUrl,
+      hasRemote,
       reviewGateStatuses,
     });
     if (reasons.length === 0) return none;
@@ -5155,6 +5165,7 @@ export function issueRoutes(
         status: existing.status,
         planRootIssueId: existing.planRootIssueId ?? null,
         prUrl: existing.prUrl ?? null,
+        projectId: existing.projectId ?? null,
       },
       targetStatus: effectiveTargetStatus,
       actorType: actor.actorType,
