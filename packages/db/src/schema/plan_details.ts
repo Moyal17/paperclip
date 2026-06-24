@@ -20,10 +20,18 @@ export const planDetails = pgTable(
     // Advisory gate protocol: 'none' = no gates; 'dev_team' = Architect /
     // Code Reviewer / Wiring Expert gate approvals are materialized at activate.
     gateProfile: text("gate_profile").notNull().default("none"),
+    // 'soft' = gates are advisory (default); 'strict' = platform hard-blocks
+    // build wakes until plan-approval approved, and blocks done-transition until
+    // review gates approved. strict requires a gated gateProfile (not 'none').
+    gateEnforcement: text("gate_enforcement").notNull().default("soft"),
     // Ordered tiers: [{ id, kind: 'phase'|'wave', name, requestedChildren: [...], childIssueIds: [] }]
     tiers: jsonb("tiers").$type<Record<string, unknown>[]>().notNull().default(sql`'[]'::jsonb`),
     budgetCapCents: integer("budget_cap_cents"),
     budgetCapTokens: bigint("budget_cap_tokens", { mode: "number" }),
+    estimatedCompletionAt: timestamp("estimated_completion_at", { withTimezone: true }),
+    estimatorAgentId: uuid("estimator_agent_id").references(() => agents.id, { onDelete: "set null" }),
+    etaOverrunNotifiedAt: timestamp("eta_overrun_notified_at", { withTimezone: true }),
+    lastMonitoredAt: timestamp("last_monitored_at", { withTimezone: true }),
     activatedAt: timestamp("activated_at", { withTimezone: true }),
     stoppedAt: timestamp("stopped_at", { withTimezone: true }),
     stopReason: text("stop_reason"),

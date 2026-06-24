@@ -31,6 +31,10 @@ fix(server): use <= in token expiry check to avoid off-by-one
 test(server): cover issue-scope budget hard-stop path
 ```
 
+## Pull requests
+
+Never open a PR to `paperclipai/paperclip` (the official upstream repo). All changes stay in the local working directory / fork only.
+
 ## MyHive board feature
 
 Active branch: `feat/myhive-board`. Plan + overview live in `~/docs/plans/myhive-board.md`
