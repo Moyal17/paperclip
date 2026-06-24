@@ -55,6 +55,10 @@ describeEmbeddedPostgres("PATCH /plans/:issueId/estimate + GET /plans/:issueId/s
     actor = { type: "agent", companyId: otherCompanyId, agentId: randomUUID(), runId: null };
   }
 
+  function asUnauthenticated() {
+    actor = { type: "none", source: "none" };
+  }
+
   async function seedCompany() {
     const companyId = randomUUID();
     await db.insert(companies).values({
@@ -254,6 +258,19 @@ describeEmbeddedPostgres("PATCH /plans/:issueId/estimate + GET /plans/:issueId/s
     expect(res.status).toBe(403);
   });
 
+  it("PATCH estimate 401 — unauthenticated", async () => {
+    const companyId = await seedCompany();
+    const planId = await seedPlan(companyId);
+    asUnauthenticated();
+
+    const res = await request(buildApp())
+      .patch(`/api/plans/${planId}/estimate`)
+      .send({ estimatedCompletionAt: new Date(Date.now() + 3600_000).toISOString() });
+
+    expect(res.status).toBe(401);
+    expect(res.body.error).toMatch(/unauthorized/i);
+  });
+
   // ─── GET /plans/:issueId/supervision/health ───────────────────────────────
 
   it("GET supervision/health 200 — returns health diagnosis shape", async () => {
@@ -301,5 +318,16 @@ describeEmbeddedPostgres("PATCH /plans/:issueId/estimate + GET /plans/:issueId/s
     const res = await request(buildApp()).get(`/api/plans/${planId}/supervision/health`);
 
     expect(res.status).toBe(403);
+  });
+
+  it("GET supervision/health 401 — unauthenticated", async () => {
+    const companyId = await seedCompany();
+    const planId = await seedPlan(companyId);
+    asUnauthenticated();
+
+    const res = await request(buildApp()).get(`/api/plans/${planId}/supervision/health`);
+
+    expect(res.status).toBe(401);
+    expect(res.body.error).toMatch(/unauthorized/i);
   });
 });
