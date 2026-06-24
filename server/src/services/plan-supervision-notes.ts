@@ -1,9 +1,9 @@
-import { and, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, or } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { activityLog, issues, planDetails, planSupervisionNotes } from "@paperclipai/db";
+import { issues, planDetails, planSupervisionNotes } from "@paperclipai/db";
 import { agentService } from "./agents.js";
 import { logger } from "../middleware/logger.js";
-import { diagnosePlanHealth, type PlanHealthDiagnosis } from "./plan-supervision.js";
+import type { PlanHealthDiagnosis } from "./plan-supervision.js";
 
 export const SUPERVISION_MONITOR_INTERVAL_MS = 15 * 60 * 1000;
 
@@ -60,67 +60,23 @@ export async function listSupervisionNotes(
     .limit(limit);
 }
 
-// Build context bundle for a CTO monitoring wake:
-// - current health snapshot for all subtree agents
-// - recent activity log entries across the subtree since `since`
-// - CTO's own persisted plan summary (null on first wake)
+// Fetch lightweight wake context for a CTO monitoring cycle.
+// Only the CTO's own persisted brief is pre-loaded — health and activity are
+// fetched on-demand by the CTO via the API only when investigation is needed.
 export async function buildMonitorContext(
   db: Db,
   planIssueId: string,
-  companyId: string,
+  _companyId: string,
   since: Date | null,
 ) {
-  const [health, planRow] = await Promise.all([
-    diagnosePlanHealth(planIssueId, db),
-    db.select({ ctoSummaryMd: planDetails.ctoSummaryMd })
-      .from(planDetails)
-      .where(eq(planDetails.issueId, planIssueId))
-      .limit(1)
-      .then((rows) => rows[0] ?? null),
-  ]);
+  const planRow = await db
+    .select({ ctoSummaryMd: planDetails.ctoSummaryMd })
+    .from(planDetails)
+    .where(eq(planDetails.issueId, planIssueId))
+    .limit(1)
+    .then((rows) => rows[0] ?? null);
 
-  // Collect subtree issue ids via recursive CTE (same approach as plans.subtreeIssueIds)
-  const rows = await db.execute<{ id: string }>(sql`
-    WITH RECURSIVE tree AS (
-      SELECT id FROM issues WHERE id = ${planIssueId}
-      UNION ALL
-      SELECT c.id FROM issues c INNER JOIN tree t ON c.parent_id = t.id
-    )
-    SELECT id FROM tree
-  `);
-  // db.execute returns either a { rows } envelope or a bare array depending on
-  // the driver. Guard the shape so a future Drizzle change surfaces loudly
-  // rather than silently yielding an empty subtree (and empty recentActivity).
-  const list = (rows as unknown as { rows?: { id: string }[] }).rows ?? (rows as unknown as { id: string }[]);
-  if (!Array.isArray(list)) {
-    logger.error({ planIssueId }, "plan monitoring: unexpected db.execute result shape for subtree CTE");
-  }
-  const subtreeIds = Array.isArray(list) ? list.map((r) => r.id) : [planIssueId];
-
-  let recentActivity: { action: string; entityId: string; actorId: string; createdAt: Date }[] = [];
-  if (subtreeIds.length > 0) {
-    const conditions = [
-      eq(activityLog.entityType, "issue"),
-      inArray(activityLog.entityId, subtreeIds),
-    ];
-    if (since) {
-      conditions.push(gt(activityLog.createdAt, since));
-    }
-    const rows = await db
-      .select({
-        action: activityLog.action,
-        entityId: activityLog.entityId,
-        actorId: activityLog.actorId,
-        createdAt: activityLog.createdAt,
-      })
-      .from(activityLog)
-      .where(and(...conditions))
-      .orderBy(desc(activityLog.createdAt))
-      .limit(100);
-    recentActivity = rows;
-  }
-
-  return { health, recentActivity, since, ctoSummaryMd: planRow?.ctoSummaryMd ?? null };
+  return { since, ctoSummaryMd: planRow?.ctoSummaryMd ?? null };
 }
 
 interface MonitoringWakeupDeps {
@@ -204,8 +160,6 @@ export async function tickPlanMonitoring(
         payload: {
           planIssueId: plan.issueId,
           since: since?.toISOString() ?? null,
-          health: context.health,
-          recentActivity: context.recentActivity,
           ctoSummaryMd: context.ctoSummaryMd,
         },
         requestedByActorType: "system",
@@ -280,8 +234,6 @@ export async function monitorNow(
     payload: {
       planIssueId,
       since: since?.toISOString() ?? null,
-      health: context.health,
-      recentActivity: context.recentActivity,
       ctoSummaryMd: context.ctoSummaryMd,
     },
     requestedByActorType: "system",
