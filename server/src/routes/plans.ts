@@ -476,6 +476,29 @@ export function planRoutes(
     actionTaken: z.string().nullish(),
   });
 
+  // CTO writes/updates its living plan summary brief.
+  router.put("/plans/:issueId/supervision/summary", async (req, res) => {
+    const existing = await issues.getById(req.params.issueId as string);
+    if (!existing) {
+      res.status(404).json({ error: "Plan not found" });
+      return;
+    }
+    assertCompanyAccess(req, existing.companyId);
+
+    const parsed = z.object({ summaryMd: z.string().min(1).max(20000) }).safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+      return;
+    }
+
+    await db
+      .update(planDetailsTable)
+      .set({ ctoSummaryMd: parsed.data.summaryMd, updatedAt: new Date() })
+      .where(eq(planDetailsTable.issueId, existing.id));
+
+    res.json({ ok: true });
+  });
+
   // List supervision notes for a plan (most recent first, limit 50).
   router.get("/plans/:issueId/supervision-notes", async (req, res) => {
     const existing = await issues.getById(req.params.issueId as string);

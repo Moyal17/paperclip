@@ -121,11 +121,47 @@ The `payload` contains:
 - `since` — ISO 8601 timestamp of the last check (null on first wake)
 - `health` — pre-fetched result of `GET /api/plans/{planIssueId}/supervision/health`
 - `recentActivity` — activity log entries since `since`
+- `ctoSummaryMd` — your own living plan brief from the previous cycle (null on first wake)
+
+### Living plan brief
+
+Maintain a compact markdown summary of the plan so each monitoring cycle starts
+from your own prior understanding instead of re-deriving everything.
+
+**On first wake** (`ctoSummaryMd` is null): write the initial brief after reviewing
+health and activity. Include: plan goal, active agents + their tasks, known blockers,
+and your current assessment.
+
+**On subsequent wakes**: read `payload.ctoSummaryMd` first — this is your prior brief.
+Use it as your baseline. Update only what changed based on `health` and `recentActivity`.
+
+**Write the updated brief** at the end of every monitoring cycle (even quiet ones):
+`PUT /api/plans/{planIssueId}/supervision/summary`
+Body: `{ "summaryMd": "<your updated markdown>" }`
+
+Keep the brief under 800 words. Terse — facts, not prose. Structure:
+```
+## Plan: <title>
+**Goal:** one sentence
+**State:** active | stalled | on track
+
+## Agents
+- <name> (<issueId short>): <current task>, <health status>
+
+## Blockers
+- <blocker> (since <date>)
+
+## Last action
+<what you did last cycle>
+
+## Assessment
+<1–3 sentences on current trajectory>
+```
 
 Steps:
-1. Read `payload.health.agents` (each has `health`, `severity`, `agentName`,
-   `issueId`, `detail`) and `payload.recentActivity`.
-2. Post to `POST /api/plans/{planIssueId}/supervision-notes`:
+1. Read `payload.ctoSummaryMd` (your prior brief) — skip re-reading what you already know.
+2. Check `payload.health.agents` and `payload.recentActivity` for deltas since last cycle.
+3. Post to `POST /api/plans/{planIssueId}/supervision-notes`:
    - `kind`: `"observation"` for status, `"overrun"` for ETA issues, `"action"` for remediation
    - `severity`: `"info"` (normal) | `"warning"` (concern) | `"critical"` (blocker)
    - `body`: 1–4 sentences standup-style.
@@ -133,6 +169,8 @@ Steps:
      - Issue found: who is stuck/looping, what decision was made, what risk/blocker.
    - `targetAgentId` (optional): agent the note is primarily about
    - `targetIssueId` (optional): task the note is primarily about
+
+4. Write updated brief: `PUT /api/plans/{planIssueId}/supervision/summary` with `{ "summaryMd": "..." }`.
 
 **Always post a note.** The board reads this to see CTO activity.
 Quiet cycles get `severity: "info"` with a one-liner. Do not go silent.

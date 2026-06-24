@@ -63,13 +63,21 @@ export async function listSupervisionNotes(
 // Build context bundle for a CTO monitoring wake:
 // - current health snapshot for all subtree agents
 // - recent activity log entries across the subtree since `since`
+// - CTO's own persisted plan summary (null on first wake)
 export async function buildMonitorContext(
   db: Db,
   planIssueId: string,
   companyId: string,
   since: Date | null,
 ) {
-  const health = await diagnosePlanHealth(planIssueId, db);
+  const [health, planRow] = await Promise.all([
+    diagnosePlanHealth(planIssueId, db),
+    db.select({ ctoSummaryMd: planDetails.ctoSummaryMd })
+      .from(planDetails)
+      .where(eq(planDetails.issueId, planIssueId))
+      .limit(1)
+      .then((rows) => rows[0] ?? null),
+  ]);
 
   // Collect subtree issue ids via recursive CTE (same approach as plans.subtreeIssueIds)
   const rows = await db.execute<{ id: string }>(sql`
@@ -112,7 +120,7 @@ export async function buildMonitorContext(
     recentActivity = rows;
   }
 
-  return { health, recentActivity, since };
+  return { health, recentActivity, since, ctoSummaryMd: planRow?.ctoSummaryMd ?? null };
 }
 
 interface MonitoringWakeupDeps {
@@ -198,6 +206,7 @@ export async function tickPlanMonitoring(
           since: since?.toISOString() ?? null,
           health: context.health,
           recentActivity: context.recentActivity,
+          ctoSummaryMd: context.ctoSummaryMd,
         },
         requestedByActorType: "system",
       });
@@ -273,6 +282,7 @@ export async function monitorNow(
       since: since?.toISOString() ?? null,
       health: context.health,
       recentActivity: context.recentActivity,
+      ctoSummaryMd: context.ctoSummaryMd,
     },
     requestedByActorType: "system",
   });
