@@ -605,7 +605,7 @@ export function planRoutes(
 
     try {
       const result = await monitorNow(db, heartbeat, req.params.issueId as string);
-      res.json(result);
+      res.status(result.woken ? 202 : 200).json(result);
     } catch (err: unknown) {
       const status = (err as { status?: number }).status;
       if (status === 409) {

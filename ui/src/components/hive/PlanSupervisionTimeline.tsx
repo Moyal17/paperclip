@@ -57,8 +57,8 @@ export function PlanSupervisionTimeline({ planIssueId, planState }: PlanSupervis
     mutationFn: () => plansApi.monitorNow(planIssueId),
     onSuccess: (r) => {
       pushToast({
-        title: r.woken ? "CTO woken for monitoring" : "No CTO agent found",
-        tone: r.woken ? "success" : "error",
+        title: r.woken ? "CTO woken for monitoring" : "Monitoring skipped — no active CTO agent",
+        tone: r.woken ? "success" : "info",
       });
       invalidateSupervision();
     },

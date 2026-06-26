@@ -12,10 +12,13 @@ import express from "express";
 import request from "supertest";
 import {
   activityLog,
+  agentRuntimeState,
   agentWakeupRequests,
   agents,
   companies,
+  companySkills,
   createDb,
+  heartbeatRuns,
   issues,
   planDetails,
   planSupervisionNotes,
@@ -54,11 +57,14 @@ describeEmbeddedPostgres("plan supervision notes", () => {
 
   afterEach(async () => {
     await db.delete(activityLog);
+    await db.delete(heartbeatRuns);
     await db.delete(agentWakeupRequests);
     await db.delete(planSupervisionNotes);
     await db.delete(planDetails);
     await db.delete(issues);
+    await db.delete(agentRuntimeState);
     await db.delete(agents);
+    await db.delete(companySkills);
     await db.delete(companies);
   });
 
@@ -422,6 +428,33 @@ describeEmbeddedPostgres("plan supervision notes", () => {
         .send({});
 
       expect(res.status).toBe(409);
+    });
+
+    it("returns 202 and woken:true when CTO agent is woken", async () => {
+      const companyId = await seedCompany();
+      await seedCtoAgent(companyId);
+      const planId = await seedPlan(companyId, { lastMonitoredAt: null });
+      asBoardOf(companyId);
+
+      const res = await request(buildApp())
+        .post(`/api/plans/${planId}/supervision/monitor`)
+        .send({});
+
+      expect(res.status).toBe(202);
+      expect(res.body.woken).toBe(true);
+    });
+
+    it("returns 200 and woken:false when no CTO agent exists", async () => {
+      const companyId = await seedCompany();
+      const planId = await seedPlan(companyId, { lastMonitoredAt: null });
+      asBoardOf(companyId);
+
+      const res = await request(buildApp())
+        .post(`/api/plans/${planId}/supervision/monitor`)
+        .send({});
+
+      expect(res.status).toBe(200);
+      expect(res.body.woken).toBe(false);
     });
   });
 });
