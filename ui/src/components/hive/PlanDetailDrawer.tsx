@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PlanGateRollup } from "./PlanGateRollup";
+import { PlanSupervisionTimeline } from "./PlanSupervisionTimeline";
 
 interface PlanDetailDrawerProps {
   companyId: string | null;
@@ -31,6 +32,7 @@ export function PlanDetailDrawer({ companyId }: PlanDetailDrawerProps) {
   const queryClient = useQueryClient();
   const { pushToast } = useToastActions();
   const [capDraft, setCapDraft] = useState("");
+  const [etaDraft, setEtaDraft] = useState("");
 
   const { data: plan } = useQuery({
     queryKey: queryKeys.hive.plan(planId!),
@@ -41,6 +43,10 @@ export function PlanDetailDrawer({ companyId }: PlanDetailDrawerProps) {
   useEffect(() => {
     setCapDraft(plan?.planDetails.budgetCapTokens?.toString() ?? "");
   }, [plan?.planDetails.budgetCapTokens]);
+
+  useEffect(() => {
+    setEtaDraft(isoToLocalInput(plan?.planDetails.estimatedCompletionAt ?? null));
+  }, [plan?.planDetails.estimatedCompletionAt]);
 
   const close = () =>
     setSearchParams((prev) => {
@@ -77,8 +83,22 @@ export function PlanDetailDrawer({ companyId }: PlanDetailDrawerProps) {
     onError: (e) => pushToast({ title: "Could not save cap", body: errMsg(e), tone: "error" }),
   });
 
+  const saveEstimate = useMutation({
+    mutationFn: () =>
+      plansApi.setEstimate(planId!, {
+        estimatedCompletionAt: etaDraft.trim() === "" ? null : localInputToIso(etaDraft),
+      }),
+    onSuccess: () => {
+      pushToast({ title: "ETA saved", tone: "success" });
+      invalidate();
+    },
+    onError: (e) => pushToast({ title: "Could not save ETA", body: errMsg(e), tone: "error" }),
+  });
+
   const capDirty = capDraft.trim() !== (plan?.planDetails.budgetCapTokens?.toString() ?? "");
   const capInvalid = capDraft.trim() !== "" && !Number.isFinite(Number(capDraft.trim()));
+  const etaCurrent = isoToLocalInput(plan?.planDetails.estimatedCompletionAt ?? null);
+  const etaDirty = etaDraft !== etaCurrent;
 
   const statusOf = (childId: string) =>
     plan?.childStatuses.find((c) => c.id === childId)?.status ?? null;
@@ -95,7 +115,17 @@ export function PlanDetailDrawer({ companyId }: PlanDetailDrawerProps) {
           <>
             <SheetHeader>
               <SheetTitle>{plan.issue.title}</SheetTitle>
-              <SheetDescription className="capitalize">State: {state}</SheetDescription>
+              <SheetDescription className="flex items-center gap-2 capitalize">
+                State: {state}
+                {plan.planDetails.gateEnforcement === "strict" && (
+                  <span
+                    title="Hard gates active — implementors cannot start until plan-approval is approved"
+                    className="inline-flex items-center rounded-full border border-amber-400/50 bg-amber-50/60 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:border-amber-300/40 dark:bg-amber-400/10 dark:text-amber-300"
+                  >
+                    strict gates
+                  </span>
+                )}
+              </SheetDescription>
             </SheetHeader>
 
             <div className="space-y-5 px-4 pb-6">
@@ -104,6 +134,10 @@ export function PlanDetailDrawer({ companyId }: PlanDetailDrawerProps) {
               )}
 
               {planId && <PlanGateRollup companyId={companyId} planIssueId={planId} />}
+
+              {planId && (
+                <PlanSupervisionTimeline planIssueId={planId} planState={state} companyId={companyId} />
+              )}
 
               {/* Budget cap */}
               <div className="space-y-1.5">
@@ -129,6 +163,41 @@ export function PlanDetailDrawer({ companyId }: PlanDetailDrawerProps) {
                   When total tokens under this plan cross the cap, the plan auto-stops.
                   {plan.planDetails.budgetCapTokens
                     ? ` Current cap: ${formatTokens(plan.planDetails.budgetCapTokens)} tok.`
+                    : ""}
+                </p>
+              </div>
+
+              {/* Estimated completion (ETA) */}
+              <div className="space-y-1.5">
+                <Label htmlFor="plan-eta">Estimated completion</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="plan-eta"
+                    type="datetime-local"
+                    value={etaDraft}
+                    onChange={(e) => setEtaDraft(e.target.value)}
+                  />
+                  <Button
+                    variant="outline"
+                    onClick={() => saveEstimate.mutate()}
+                    disabled={saveEstimate.isPending || !etaDirty}
+                  >
+                    {saveEstimate.isPending ? "Saving…" : "Save"}
+                  </Button>
+                  {etaDraft.trim() !== "" && (
+                    <Button
+                      variant="ghost"
+                      onClick={() => setEtaDraft("")}
+                      disabled={saveEstimate.isPending}
+                    >
+                      Clear
+                    </Button>
+                  )}
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  When the plan passes this time, the CTO is woken to review overrun.
+                  {plan.planDetails.estimatedCompletionAt
+                    ? ` Current: ${new Date(plan.planDetails.estimatedCompletionAt).toLocaleString()}.`
                     : ""}
                 </p>
               </div>
@@ -199,4 +268,19 @@ export function PlanDetailDrawer({ companyId }: PlanDetailDrawerProps) {
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : "Something went wrong.";
+}
+
+// <input type="datetime-local"> works in local time with no timezone suffix.
+// Convert the stored UTC ISO string to a local "YYYY-MM-DDTHH:mm" value and back.
+function isoToLocalInput(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function localInputToIso(local: string): string {
+  // `new Date("YYYY-MM-DDTHH:mm")` parses as local time; toISOString normalizes to UTC.
+  return new Date(local).toISOString();
 }

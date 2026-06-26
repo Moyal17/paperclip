@@ -49,6 +49,10 @@ export interface CreatePlanInput {
   budgetCapCents?: number | null;
   budgetCapTokens?: number | null;
   gateProfile?: PlanGateProfile | null;
+  // 'soft' (default) = gates are advisory; 'strict' = platform hard-blocks wakes
+  // until plan-approval approved, and blocks done-transition until review gates approved.
+  // strict requires a gated profile (not 'none'/'solo') — caller must validate.
+  gateEnforcement?: "soft" | "strict";
   // Declared scope for the Layer 0 triage floor. When the touched paths hit a
   // high-risk surface (auth/payments/migration/secrets/public-api) or exceed the
   // file-count threshold, the persisted gateProfile is forced up to dev_team.
@@ -232,6 +236,7 @@ export function planService(db: Db) {
             touchedPaths: input.touchedPaths,
             fileCount: input.fileCount,
           }),
+          gateEnforcement: input.gateEnforcement ?? "soft",
           createdByUserId: input.createdByUserId ?? null,
           createdByAgentId: input.createdByAgentId ?? null,
         })
@@ -572,6 +577,26 @@ export function planService(db: Db) {
       }
 
       return { planDetails: updated, createdApprovalIds, cancelledApprovalIds };
+    },
+
+    setEstimate: async (
+      issueId: string,
+      input: { estimatedCompletionAt?: Date | null; estimatorAgentId?: string | null },
+    ) => {
+      // Only clear the one-shot overrun guard when the ETA itself moves. A call
+      // that updates estimatorAgentId alone must NOT re-arm the overrun wake.
+      const etaChanged = input.estimatedCompletionAt !== undefined;
+      const [updated] = await db
+        .update(planDetails)
+        .set({
+          estimatedCompletionAt: input.estimatedCompletionAt,
+          estimatorAgentId: input.estimatorAgentId,
+          ...(etaChanged ? { etaOverrunNotifiedAt: null } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(planDetails.issueId, issueId))
+        .returning();
+      return updated;
     },
 
     setBudgetCaps: async (
