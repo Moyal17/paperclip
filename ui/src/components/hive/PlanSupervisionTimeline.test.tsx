@@ -13,7 +13,12 @@ const mockPlansApi = vi.hoisted(() => ({
   takeAction: vi.fn(),
 }));
 
+const mockAgentsApi = vi.hoisted(() => ({
+  list: vi.fn(),
+}));
+
 vi.mock("../../api/plans", () => ({ plansApi: mockPlansApi }));
+vi.mock("../../api/agents", () => ({ agentsApi: mockAgentsApi }));
 vi.mock("../../context/ToastContext", () => ({
   useToastActions: () => ({ pushToast: vi.fn() }),
 }));
@@ -25,7 +30,7 @@ async function flushReact() {
   }
 }
 
-function render(planState: string) {
+function render(planState: string, companyId: string | null = null) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -33,7 +38,7 @@ function render(planState: string) {
   flushSync(() => {
     root.render(
       <QueryClientProvider client={queryClient}>
-        <PlanSupervisionTimeline planIssueId="plan-1" planState={planState} />
+        <PlanSupervisionTimeline planIssueId="plan-1" planState={planState} companyId={companyId} />
       </QueryClientProvider>,
     );
   });
@@ -68,6 +73,11 @@ describe("PlanSupervisionTimeline", () => {
     });
     mockPlansApi.takeAction.mockResolvedValue({ note: {}, actionTaken: "rewake" });
     mockPlansApi.monitorNow.mockResolvedValue({ woken: true });
+    mockAgentsApi.list.mockResolvedValue([
+      { id: "agent-a", name: "Alpha Agent", role: "implementor", icon: null, status: "active" },
+      { id: "agent-b", name: "Beta Agent", role: "implementor", icon: null, status: "active" },
+      { id: "agent-c", name: "Terminated Agent", role: "implementor", icon: null, status: "terminated" },
+    ]);
   });
 
   afterEach(() => {
@@ -196,5 +206,85 @@ describe("PlanSupervisionTimeline", () => {
       runId: "run-abc123",
       targetAgentId: "agent-9",
     });
+  });
+
+  it("renders Reassign button for each agent row", async () => {
+    render("active", "company-1");
+    await flushReact();
+
+    expect(buttonByText("Reassign")).toBeTruthy();
+  });
+
+  it("clicking Reassign opens the reassign dialog", async () => {
+    render("active", "company-1");
+    await flushReact();
+
+    buttonByText("Reassign")!.click();
+    await flushReact();
+
+    expect(document.body.textContent).toContain("Reassign issue");
+  });
+
+  it("Reassign confirm dispatches takeAction with targetIssueId and newAssigneeAgentId", async () => {
+    mockPlansApi.takeAction.mockResolvedValue({ note: {}, actionTaken: "reassign" });
+    render("active", "company-1");
+    await flushReact();
+
+    // Open the reassign dialog
+    buttonByText("Reassign")!.click();
+    await flushReact();
+
+    // Open the agent picker popover and select "Alpha Agent"
+    buttonByText("Select new assignee")!.click();
+    await flushReact();
+
+    const alphaButton = [...document.querySelectorAll("button")].find(
+      (b) => b.textContent?.includes("Alpha Agent"),
+    ) as HTMLButtonElement | undefined;
+    expect(alphaButton).toBeTruthy();
+    alphaButton!.click();
+    await flushReact();
+
+    // Click the dialog confirm button (distinct from the row's "Reassign" trigger)
+    const allReassignButtons = [...document.querySelectorAll("button")].filter(
+      (b) => b.textContent?.trim() === "Reassign",
+    );
+    // Row trigger + dialog confirm — click the last one (dialog confirm)
+    allReassignButtons[allReassignButtons.length - 1]!.click();
+    await flushReact();
+
+    expect(mockPlansApi.takeAction).toHaveBeenCalledWith("plan-1", {
+      action: "reassign",
+      targetIssueId: "issue-2",
+      newAssigneeAgentId: "agent-a",
+    });
+  });
+
+  it("dialog closes after successful reassign", async () => {
+    mockPlansApi.takeAction.mockResolvedValue({ note: {}, actionTaken: "reassign" });
+    render("active", "company-1");
+    await flushReact();
+
+    buttonByText("Reassign")!.click();
+    await flushReact();
+
+    expect(document.body.textContent).toContain("Reassign issue");
+
+    buttonByText("Select new assignee")!.click();
+    await flushReact();
+
+    const alphaButton = [...document.querySelectorAll("button")].find(
+      (b) => b.textContent?.includes("Alpha Agent"),
+    ) as HTMLButtonElement | undefined;
+    alphaButton!.click();
+    await flushReact();
+
+    const allReassignButtons = [...document.querySelectorAll("button")].filter(
+      (b) => b.textContent?.trim() === "Reassign",
+    );
+    allReassignButtons[allReassignButtons.length - 1]!.click();
+    await flushReact();
+
+    expect(document.body.textContent).not.toContain("Reassign issue");
   });
 });

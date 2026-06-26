@@ -70,7 +70,7 @@ export function PlanSupervisionTimeline({ planIssueId, planState, companyId }: P
   });
 
   const { data: agentsData } = useQuery({
-    queryKey: queryKeys.agents.list(companyId ?? "__no-company__"),
+    queryKey: companyId ? queryKeys.agents.list(companyId) : (["agents", null] as const),
     queryFn: () => agentsApi.list(companyId!),
     enabled: isActive && !!companyId,
   });
