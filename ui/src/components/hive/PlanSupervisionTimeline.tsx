@@ -126,9 +126,13 @@ export function PlanSupervisionTimeline({ planIssueId, planState, companyId }: P
   const reassign = useMutation({
     mutationFn: ({ targetIssueId, newAssigneeAgentId }: { targetIssueId: string; newAssigneeAgentId: string }) =>
       plansApi.takeAction(planIssueId, { action: "reassign", targetIssueId, newAssigneeAgentId }),
-    onSuccess: () => {
+    onSuccess: (_, { targetIssueId }) => {
       pushToast({ title: "Issue reassigned", tone: "success" });
       invalidateSupervision();
+      if (companyId) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.issues.list(companyId) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.issues.detail(targetIssueId) });
+      }
       setReassignDialog(null);
       setReassignToAgentId(null);
     },
@@ -217,7 +221,7 @@ export function PlanSupervisionTimeline({ planIssueId, planState, companyId }: P
                       variant="outline"
                       size="sm"
                       className="h-6 shrink-0 px-2 text-[11px] text-red-700 hover:text-red-800 dark:text-red-300"
-                      onClick={() => cancelRun.mutate({ runId: agent.runId, targetAgentId: agent.agentId })}
+                      onClick={() => cancelRun.mutate({ runId: agent.runId!, targetAgentId: agent.agentId })}
                       disabled={actionPending}
                     >
                       {cancelRun.isPending ? "Cancelling…" : "Cancel run"}
@@ -291,6 +295,9 @@ function ReassignDialog({
   onClose,
 }: ReassignDialogProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
+  // Filters out inactive agents. orgChainHealth-based pre-filtering (e.g. restricting
+  // to agents within the plan's org chain) is not yet surfaced by the agents API;
+  // board users see all active agents and must pick a valid one.
   const eligibleAgents = agents.filter(
     (a) => a.status !== "terminated" && a.status !== "pending_approval",
   );
