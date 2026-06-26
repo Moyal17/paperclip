@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "@/lib/router";
 import { useState, useEffect } from "react";
 import { plansApi } from "../../api/plans";
+import type { AgentTokenStat } from "../../api/plans";
 import { useToastActions } from "../../context/ToastContext";
 import { queryKeys } from "../../lib/queryKeys";
 import { formatTokens } from "../../lib/utils";
@@ -17,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PlanGateRollup } from "./PlanGateRollup";
+import { PlanSupervisionTimeline } from "./PlanSupervisionTimeline";
 
 interface PlanDetailDrawerProps {
   companyId: string | null;
@@ -31,6 +33,7 @@ export function PlanDetailDrawer({ companyId }: PlanDetailDrawerProps) {
   const queryClient = useQueryClient();
   const { pushToast } = useToastActions();
   const [capDraft, setCapDraft] = useState("");
+  const [etaDraft, setEtaDraft] = useState("");
 
   const { data: plan } = useQuery({
     queryKey: queryKeys.hive.plan(planId!),
@@ -38,9 +41,19 @@ export function PlanDetailDrawer({ companyId }: PlanDetailDrawerProps) {
     enabled: !!planId,
   });
 
+  const { data: tokenStatsData } = useQuery({
+    queryKey: queryKeys.hive.planTokenStats(planId!),
+    queryFn: () => plansApi.tokenStats(planId!),
+    enabled: !!planId,
+  });
+
   useEffect(() => {
     setCapDraft(plan?.planDetails.budgetCapTokens?.toString() ?? "");
   }, [plan?.planDetails.budgetCapTokens]);
+
+  useEffect(() => {
+    setEtaDraft(isoToLocalInput(plan?.planDetails.estimatedCompletionAt ?? null));
+  }, [plan?.planDetails.estimatedCompletionAt]);
 
   const close = () =>
     setSearchParams((prev) => {
@@ -77,8 +90,22 @@ export function PlanDetailDrawer({ companyId }: PlanDetailDrawerProps) {
     onError: (e) => pushToast({ title: "Could not save cap", body: errMsg(e), tone: "error" }),
   });
 
+  const saveEstimate = useMutation({
+    mutationFn: () =>
+      plansApi.setEstimate(planId!, {
+        estimatedCompletionAt: etaDraft.trim() === "" ? null : localInputToIso(etaDraft),
+      }),
+    onSuccess: () => {
+      pushToast({ title: "ETA saved", tone: "success" });
+      invalidate();
+    },
+    onError: (e) => pushToast({ title: "Could not save ETA", body: errMsg(e), tone: "error" }),
+  });
+
   const capDirty = capDraft.trim() !== (plan?.planDetails.budgetCapTokens?.toString() ?? "");
   const capInvalid = capDraft.trim() !== "" && !Number.isFinite(Number(capDraft.trim()));
+  const etaCurrent = isoToLocalInput(plan?.planDetails.estimatedCompletionAt ?? null);
+  const etaDirty = etaDraft !== etaCurrent;
 
   const statusOf = (childId: string) =>
     plan?.childStatuses.find((c) => c.id === childId)?.status ?? null;
@@ -90,12 +117,22 @@ export function PlanDetailDrawer({ companyId }: PlanDetailDrawerProps) {
 
   return (
     <Sheet open={!!planId} onOpenChange={(o) => { if (!o) close(); }}>
-      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-md">
+      <SheetContent side="right" className="w-full overflow-y-auto sm:min-w-[30%] sm:max-w-[40%]">
         {plan ? (
           <>
             <SheetHeader>
               <SheetTitle>{plan.issue.title}</SheetTitle>
-              <SheetDescription className="capitalize">State: {state}</SheetDescription>
+              <SheetDescription className="flex items-center gap-2 capitalize">
+                State: {state}
+                {plan.planDetails.gateEnforcement === "strict" && (
+                  <span
+                    title="Hard gates active — implementors cannot start until plan-approval is approved"
+                    className="inline-flex items-center rounded-full border border-amber-400/50 bg-amber-50/60 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:border-amber-300/40 dark:bg-amber-400/10 dark:text-amber-300"
+                  >
+                    strict gates
+                  </span>
+                )}
+              </SheetDescription>
             </SheetHeader>
 
             <div className="space-y-5 px-4 pb-6">
@@ -104,6 +141,10 @@ export function PlanDetailDrawer({ companyId }: PlanDetailDrawerProps) {
               )}
 
               {planId && <PlanGateRollup companyId={companyId} planIssueId={planId} />}
+
+              {planId && (
+                <PlanSupervisionTimeline planIssueId={planId} planState={state} />
+              )}
 
               {/* Budget cap */}
               <div className="space-y-1.5">
@@ -129,6 +170,41 @@ export function PlanDetailDrawer({ companyId }: PlanDetailDrawerProps) {
                   When total tokens under this plan cross the cap, the plan auto-stops.
                   {plan.planDetails.budgetCapTokens
                     ? ` Current cap: ${formatTokens(plan.planDetails.budgetCapTokens)} tok.`
+                    : ""}
+                </p>
+              </div>
+
+              {/* Estimated completion (ETA) */}
+              <div className="space-y-1.5">
+                <Label htmlFor="plan-eta">Estimated completion</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="plan-eta"
+                    type="datetime-local"
+                    value={etaDraft}
+                    onChange={(e) => setEtaDraft(e.target.value)}
+                  />
+                  <Button
+                    variant="outline"
+                    onClick={() => saveEstimate.mutate()}
+                    disabled={saveEstimate.isPending || !etaDirty}
+                  >
+                    {saveEstimate.isPending ? "Saving…" : "Save"}
+                  </Button>
+                  {etaDraft.trim() !== "" && (
+                    <Button
+                      variant="ghost"
+                      onClick={() => setEtaDraft("")}
+                      disabled={saveEstimate.isPending}
+                    >
+                      Clear
+                    </Button>
+                  )}
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  When the plan passes this time, the CTO is woken to review overrun.
+                  {plan.planDetails.estimatedCompletionAt
+                    ? ` Current: ${new Date(plan.planDetails.estimatedCompletionAt).toLocaleString()}.`
                     : ""}
                 </p>
               </div>
@@ -185,6 +261,9 @@ export function PlanDetailDrawer({ companyId }: PlanDetailDrawerProps) {
                   )}
                 </div>
               )}
+
+              {/* Token consumption per agent */}
+              <PlanTokenStatsTable stats={tokenStatsData?.stats ?? []} />
             </div>
           </>
         ) : (
@@ -197,6 +276,91 @@ export function PlanDetailDrawer({ companyId }: PlanDetailDrawerProps) {
   );
 }
 
+function PlanTokenStatsTable({ stats }: { stats: AgentTokenStat[] }) {
+  const totalTokens = stats.reduce((s, r) => s + r.totalInputTokens + r.totalOutputTokens, 0);
+  const totalCostCents = stats.reduce((s, r) => s + r.totalCostCents, 0);
+
+  return (
+    <div className="space-y-2">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Token consumption
+      </h3>
+      {stats.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground">
+          No token data yet. Data is recorded on runs after this feature was deployed.
+        </p>
+      ) : (
+        <div className="overflow-x-auto rounded-md border border-border">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-border bg-muted/40">
+                <th className="px-2.5 py-1.5 text-left font-medium text-muted-foreground">Agent</th>
+                <th className="px-2.5 py-1.5 text-right font-medium text-muted-foreground">Tokens</th>
+                <th className="px-2.5 py-1.5 text-right font-medium text-muted-foreground">Est. cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stats.map((row) => (
+                <tr key={row.agentId} className="border-b border-border last:border-0">
+                  <td className="px-2.5 py-1.5">
+                    <span className="font-medium">{row.agentName ?? row.agentId.slice(0, 8)}</span>
+                    {row.role && (
+                      <span className="ml-1.5 text-[10px] text-muted-foreground capitalize">
+                        {row.role}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-2.5 py-1.5 text-right tabular-nums text-muted-foreground">
+                    {formatTokens(row.totalInputTokens + row.totalOutputTokens)}
+                  </td>
+                  <td className="px-2.5 py-1.5 text-right tabular-nums">
+                    {formatCostCents(row.totalCostCents)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            {stats.length > 1 && (
+              <tfoot>
+                <tr className="border-t border-border bg-muted/20">
+                  <td className="px-2.5 py-1.5 font-medium">Total</td>
+                  <td className="px-2.5 py-1.5 text-right tabular-nums font-medium">
+                    {formatTokens(totalTokens)}
+                  </td>
+                  <td className="px-2.5 py-1.5 text-right tabular-nums font-medium">
+                    {formatCostCents(totalCostCents)}
+                  </td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatCostCents(cents: number): string {
+  if (cents === 0) return "$0.00";
+  const dollars = cents / 100;
+  if (dollars < 0.01) return "<$0.01";
+  return `$${dollars.toFixed(2)}`;
+}
+
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : "Something went wrong.";
+}
+
+// <input type="datetime-local"> works in local time with no timezone suffix.
+// Convert the stored UTC ISO string to a local "YYYY-MM-DDTHH:mm" value and back.
+function isoToLocalInput(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function localInputToIso(local: string): string {
+  // `new Date("YYYY-MM-DDTHH:mm")` parses as local time; toISOString normalizes to UTC.
+  return new Date(local).toISOString();
 }

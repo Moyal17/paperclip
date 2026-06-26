@@ -2,7 +2,7 @@ import type { FeedbackDataSharingPreference } from "./feedback.js";
 
 // --- Platform guard config ---
 
-export const DEFAULT_GUARD_COMPANY_MONTHLY_TOKENS = 40_000_000;
+export const DEFAULT_GUARD_COMPANY_MONTHLY_TOKENS = 150_000_000;
 export const DEFAULT_GUARD_AGENT_MONTHLY_TOKENS = 8_000_000;
 export const DEFAULT_GUARD_WARN_PERCENT = 80;
 export const DEFAULT_GUARD_MAX_TURNS_PER_RUN = 120;

@@ -164,6 +164,9 @@ export const queryKeys = {
   hive: {
     board: (companyId: string) => ["issues", companyId, "hive-board"] as const,
     plan: (issueId: string) => ["plans", "detail", issueId] as const,
+    planSupervision: (issueId: string) => ["plans", "supervision-notes", issueId] as const,
+    planHealth: (issueId: string) => ["plans", "supervision-health", issueId] as const,
+    planTokenStats: (issueId: string) => ["plans", "token-stats", issueId] as const,
   },
   approvals: {
     list: (companyId: string, status?: string, planRootIssueId?: string) =>

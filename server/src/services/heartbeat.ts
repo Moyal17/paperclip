@@ -121,6 +121,7 @@ import {
   refreshIssueContinuationSummary,
 } from "./issue-continuation-summary.js";
 import { isGateReviewWake } from "./plan-gates.js";
+import { isWakeBlockedByStrictGate } from "./plan-gate-enforcement.js";
 import { executionWorkspaceService, mergeExecutionWorkspaceConfig } from "./execution-workspaces.js";
 import { workspaceOperationService } from "./workspace-operations.js";
 import { isProcessGroupAlive, terminateLocalService } from "./local-service-supervisor.js";
@@ -1747,11 +1748,13 @@ async function resolveLedgerScopeForRun(
   const context = parseObject(run.contextSnapshot);
   const contextIssueId = readNonEmptyString(context.issueId);
   const contextProjectId = readNonEmptyString(context.projectId);
+  const contextPlanIssueId = readNonEmptyString(context.planIssueId);
 
   if (!contextIssueId) {
     return {
       issueId: null,
       projectId: contextProjectId,
+      planIssueId: contextPlanIssueId,
     };
   }
 
@@ -1759,6 +1762,7 @@ async function resolveLedgerScopeForRun(
     .select({
       id: issues.id,
       projectId: issues.projectId,
+      planRootIssueId: issues.planRootIssueId,
     })
     .from(issues)
     .where(and(eq(issues.id, contextIssueId), eq(issues.companyId, companyId)))
@@ -1767,6 +1771,7 @@ async function resolveLedgerScopeForRun(
   return {
     issueId: issue?.id ?? null,
     projectId: issue?.projectId ?? contextProjectId,
+    planIssueId: contextPlanIssueId ?? issue?.planRootIssueId ?? null,
   };
 }
 
@@ -2458,6 +2463,10 @@ function enrichWakeContextSnapshot(input: {
   }
   if (!readNonEmptyString(contextSnapshot["wakeTriggerDetail"]) && triggerDetail) {
     contextSnapshot.wakeTriggerDetail = triggerDetail;
+  }
+  const planIssueIdFromPayload = readNonEmptyString(payload?.["planIssueId"]);
+  if (!readNonEmptyString(contextSnapshot["planIssueId"]) && planIssueIdFromPayload) {
+    contextSnapshot.planIssueId = planIssueIdFromPayload;
   }
   normalizeModelProfileWakeContext({ contextSnapshot, payload });
   normalizeInteractionContinuationWakeContext(contextSnapshot, payload);
@@ -7841,6 +7850,7 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
         agentId: agent.id,
         issueId: ledgerScope.issueId,
         projectId: ledgerScope.projectId,
+        planIssueId: ledgerScope.planIssueId,
         provider,
         biller,
         billingType,
@@ -10509,6 +10519,15 @@ export function heartbeatService(db: Db, options: HeartbeatServiceOptions = {}) 
           interaction: true,
         };
       }
+    }
+
+    // Gate A — strict plan enforcement. If the issue is under a strict plan
+    // whose plan-approval gate is not yet approved, suppress all build wakes.
+    // Gate review wakes (architect, code-reviewer, etc.) are always allowed.
+    // Fails-open on error so a DB hiccup never deadlocks an agent.
+    if (issueId && await isWakeBlockedByStrictGate(db, agent.companyId, issueId, reason)) {
+      await writeSkippedRequest("blocked.strict_plan_gate");
+      return null;
     }
 
     if (issueId) {

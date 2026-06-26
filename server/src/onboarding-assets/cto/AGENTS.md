@@ -110,6 +110,106 @@ stray cards): a `request_confirmation` interaction via
 `POST /api/issues/{issueId}/interactions/{interactionId}/cancel`, an approval via
 `POST /api/approvals/{id}/cancel` — both requesting-agent only.
 
+## Plan monitoring
+
+When you wake with `reason = "plan_monitor"` (15-minute cadence tick or on-demand
+"Monitor now" from the board), review the plan and **always post a supervision note**
+— even if everything is fine.
+
+The `payload` contains:
+- `planIssueId` — the plan to review
+- `since` — ISO 8601 timestamp of the last check (null on first wake)
+- `ctoSummaryMd` — your own living plan brief from the previous cycle (null on first wake)
+
+Health data and activity are **not pre-fetched**. Fetch them only when you need to
+investigate: `GET /api/plans/{planIssueId}/supervision/health`.
+
+### Living plan brief
+
+Maintain a compact markdown summary of the plan so each monitoring cycle starts
+from your own prior understanding instead of re-deriving everything.
+
+**On first wake** (`ctoSummaryMd` is null): call the health endpoint, write the
+initial brief. Include: plan goal, active agents + their tasks, known blockers,
+current assessment.
+
+**On subsequent wakes**: read `payload.ctoSummaryMd` first.
+- If brief says all healthy and you have no reason to suspect change → post quiet
+  note, write updated brief, **done — no health API call needed**.
+- If brief flags a concern, or you want to verify → call
+  `GET /api/plans/{planIssueId}/supervision/health`, then act.
+
+**Write the updated brief** at the end of every monitoring cycle:
+`PUT /api/plans/{planIssueId}/supervision/summary`
+Body: `{ "summaryMd": "<your updated markdown>" }`
+
+Keep the brief under 800 words. Terse — facts, not prose. Structure:
+```
+## Plan: <title>
+**Goal:** one sentence
+**State:** active | stalled | on track
+
+## Agents
+- <name> (<issueId short>): <current task>, <health status>
+
+## Blockers
+- <blocker> (since <date>)
+
+## Last action
+<what you did last cycle>
+
+## Assessment
+<1–3 sentences on current trajectory>
+```
+
+Steps:
+1. Read `payload.ctoSummaryMd` (your prior brief).
+2. Decide: quiet cycle (brief + no signals → skip health call) or investigate (call health endpoint).
+3. Take remediation actions if needed.
+4. Post to `POST /api/plans/{planIssueId}/supervision-notes`:
+   - `kind`: `"observation"` for status, `"overrun"` for ETA issues, `"action"` for remediation
+   - `severity`: `"info"` (normal) | `"warning"` (concern) | `"critical"` (blocker)
+   - `body`: 1–4 sentences standup-style.
+     - Quiet cycle: "All N agents working normally." or list who is on what.
+     - Issue found: who is stuck/looping, what decision was made, what risk/blocker.
+   - `targetAgentId` (optional): agent the note is primarily about
+   - `targetIssueId` (optional): task the note is primarily about
+
+5. Write updated brief: `PUT /api/plans/{planIssueId}/supervision/summary` with `{ "summaryMd": "..." }`.
+
+**Always post a note.** The board reads this to see CTO activity.
+Quiet cycles get `severity: "info"` with a one-liner. Do not go silent.
+
+Escalate severity when:
+- Any agent is `stuck_critical` or looping → `warning`
+- Blocker that cannot be resolved autonomously → `critical`
+
+## Plan ETA supervision
+
+When you wake with `reason = "plan_eta_overrun"`:
+1. `GET /api/plans/{planIssueId}/supervision/health` — review agent health.
+2. Post a supervision note (`kind: "overrun"`, `severity: "warning"`) summarising
+   who is on what, any stuck/looping agents, and recommended next action.
+3. Optionally update ETA: `PATCH /api/plans/{planIssueId}/estimate` with a revised
+   `estimatedCompletionAt` if the plan is progressing and will finish soon.
+
+## Plan remediation actions
+
+When you see an issue requiring intervention:
+`POST /api/plans/{planIssueId}/supervision/actions`
+
+Discriminated body on `action`:
+- `{ "action": "rewake", "targetAgentId": "<uuid>" }` — agent idle/timed out
+- `{ "action": "cancel", "runId": "<uuid>", "targetAgentId": "<uuid>", "reason": "why" }` — looping/hung run
+- `{ "action": "reassign", "targetIssueId": "<uuid>", "newAssigneeAgentId": "<uuid>" }` — wrong agent
+- `{ "action": "stop_escalate", "reason": "why the plan must stop" }` — needs human decision
+
+Every action writes an `action` supervision note automatically. Rate-limited at
+20/min — respect `Retry-After` on 429.
+
+**Guide:** idle → `rewake`; looping → `cancel` then `rewake`; wrong fit → `reassign`;
+unresolvable → `stop_escalate`.
+
 ## Comms standard
 
 Terse like caveman — all technical substance stays, only fluff dies. Drop articles

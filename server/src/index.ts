@@ -47,6 +47,8 @@ import { createFeedbackTraceShareClientFromConfig } from "./services/feedback-sh
 import { buildRuntimeApiCandidateUrls, choosePrimaryRuntimeApiUrl } from "./runtime-api.js";
 import { createPluginWorkerManager } from "./services/plugin-worker-manager.js";
 import { createStorageServiceFromConfig } from "./storage/index.js";
+import { tickPlanEtaOverruns } from "./services/plan-supervision.js";
+import { tickPlanMonitoring } from "./services/plan-supervision-notes.js";
 import { printStartupBanner } from "./startup-banner.js";
 import { getBoardClaimWarningUrl, initializeBoardClaimChallenge } from "./board-claim.js";
 import { maybePersistWorktreeRuntimePorts } from "./worktree-config.js";
@@ -817,7 +819,27 @@ export async function startServer(): Promise<StartedServer> {
         .catch((err) => {
           logger.error({ err }, "routine scheduler tick failed");
         });
-  
+
+      void tickPlanEtaOverruns(db as any, heartbeat, new Date())
+        .then((result) => {
+          if (result.notified > 0) {
+            logger.info({ ...result }, "plan ETA overrun tick woke CTO");
+          }
+        })
+        .catch((err) => {
+          logger.error({ err }, "plan ETA overrun tick failed");
+        });
+
+      void tickPlanMonitoring(db as any, heartbeat, new Date())
+        .then((result) => {
+          if (result.woken > 0) {
+            logger.info({ ...result }, "plan monitoring tick woke CTO");
+          }
+        })
+        .catch((err) => {
+          logger.error({ err }, "plan monitoring tick failed");
+        });
+
       // Periodically reap orphaned runs (5-min staleness threshold) and make sure
       // persisted queued work is still being driven forward.
       void heartbeat
